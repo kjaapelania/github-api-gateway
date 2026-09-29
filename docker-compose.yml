@@ -1,0 +1,29 @@
+services:
+  relay:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: github-api-relay:latest
+    container_name: github-api-relay
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - PORT=8080
+      - POLICY_PATH=/app/policy.yaml
+      - GITHUB_TOKENS=${GITHUB_TOKENS:-}
+      - RELAY_AUTH_KEYS=${RELAY_AUTH_KEYS:-}
+      - TOKEN_MIN_REMAINING=${TOKEN_MIN_REMAINING:-3000}
+      - FALLBACK_UNAUTHENTICATED=${FALLBACK_UNAUTHENTICATED:-true}
+      - CACHE_TTL_SECONDS=${CACHE_TTL_SECONDS:-300}
+    volumes:
+      - ./policy.yaml:/app/policy.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/_relay/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

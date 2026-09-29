@@ -1,0 +1,36 @@
+# Enterprise Access Policy (Fail-Closed Default Deny)
+# Rules support:
+#   repo (glob) OR repo_regex (Go regex) - mutually exclusive
+#   path (glob) OR path_regex (Go regex) - mutually exclusive
+#   methods (MANDATORY list: GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS)
+
+# 1. Internal Company Scope (High Security)
+internal_rules:
+  # Allow reading release assets and metadata for your company repos
+  - name: "Internal team releases"
+    repo: "my-company/*"
+    path:
+      - "/repos/my-company/*/releases/**"
+      - "/repos/my-company/*/tags"
+    methods: ["GET", "HEAD"]
+
+  # Specific service allowed to read contents
+  - name: "Shared CI tools contents"
+    repo: "my-company/ci-tools"
+    path: "/repos/my-company/ci-tools/contents/**"
+    methods: ["GET", "HEAD"]
+
+# 2. External Open Source Scope (Prevents Data Exfiltration)
+external_rules:
+  # Allow pulling standard open-source dependencies (read-only)
+  - name: "Approved open source dependencies"
+    repo:
+      - "golang/*"
+      - "kubernetes/*"
+      - "hashicorp/*"
+    methods: ["GET", "HEAD"]
+
+  # Allow public release downloads across all external repositories
+  - name: "Universal release asset downloads"
+    path: "/repos/*/*/releases/download/**"
+    methods: ["GET", "HEAD"]

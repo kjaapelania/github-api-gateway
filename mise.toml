@@ -26,3 +26,15 @@ run = "docker build -t github-api-relay:latest ."
 [tasks."docker:run"]
 description = "Run relay in Docker container"
 run = "docker run --rm -p 8080:8080 -v $(pwd)/policy.yaml:/app/policy.yaml:ro --env-file .env github-api-relay:latest"
+
+[tasks."compose:up"]
+description = "Start relay service via Docker Compose"
+run = "docker compose up -d --build"
+
+[tasks."compose:down"]
+description = "Stop Docker Compose services"
+run = "docker compose down"
+
+[tasks."compose:logs"]
+description = "Follow Docker Compose logs"
+run = "docker compose logs -f"
