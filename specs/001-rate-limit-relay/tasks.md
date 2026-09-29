@@ -31,14 +31,14 @@
 
 ## Phase 3: Largest-Remaining Token Pool & 10s Cooldown Management
 
-- [ ] **T006 [TokenPool]**: [TDD] Write unit tests in `internal/token/pool_test.go`:
+- [x] **T006 [TokenPool]**: [TDD] Write unit tests in `internal/token/pool_test.go`:
   - Token selection chooses the token with the Largest Remaining Quota among tokens with remaining >= minRemaining (default: 3000).
   - When all tokens are below minRemaining, selection waits until `Now > ResetTime + 10s`.
   - When probed after reset time and GitHub still reports `remaining < minRemaining` (delayed rollover), assert next probe is throttled for 10 seconds.
   - When all tokens are exhausted and past cooldown, `Acquire()` returns fallback to unauthenticated if `fallbackUnauthenticated=true`, or returns an error if `false`.
   - Works transparently with any token prefix (`ghp_`, `github_pat_`, `gho_`, `ghs_`).
   - Works with empty token list (unauthenticated-only mode).
-- [ ] **T007 [TokenPool]**: Implement `internal/token/pool.go` using `sync.RWMutex` to make `pool_test.go` pass (Green).
+- [x] **T007 [TokenPool]**: Implement `internal/token/pool.go` using `sync.RWMutex` to make `pool_test.go` pass (Green).
 
 ---
 
