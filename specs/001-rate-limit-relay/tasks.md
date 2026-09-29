@@ -64,33 +64,25 @@
 
 ---
 
-## Phase 6: Latest Release Redirect Optimization
+## Phase 6: Zero-Quota ETag In-Memory Caching & S3 Redirect Preservation
 
-- [ ] **T012 [Redirect]**: [TDD] Write tests in `internal/redirect/release_test.go`:
-  - Request to `/repos/{owner}/{repo}/releases/latest/download/{asset}` returns `302 Found` with `Location: https://github.com/{owner}/{repo}/releases/latest/download/{asset}`.
-  - Requests not matching this pattern pass to the next handler.
-- [ ] **T013 [Redirect]**: Implement `internal/redirect/release.go` using standard `http.Redirect` to make `release_test.go` pass (Green).
-
----
-
-## Phase 7: Zero-Quota ETag In-Memory Caching
-
-- [ ] **T014 [Cache]**: [TDD] Write tests in `internal/cache/memory_test.go`:
+- [ ] **T012 [Cache]**: [TDD] Write tests in `internal/cache/memory_test.go`:
   - Cache response body and `ETag` on `200 OK` `GET` requests.
   - On subsequent request, verify `If-None-Match: <ETag>` is sent to upstream.
-  - When upstream responds with `304 Not Modified`, verify relay serves cached body with status `200 OK` and updated rate limit headers.
-- [ ] **T015 [Cache]**: Implement `internal/cache/memory.go` using `sync.RWMutex` to make `memory_test.go` pass (Green).
+  - When upstream responds with `304 Not Modified`, verify relay serves cached body with status `200 OK` and updated rate limit headers (0 quota consumed).
+  - Assert that upstream `302 Found` responses (e.g. GitHub release binary redirects to S3) are preserved and forwarded directly to the client without buffering binary bodies.
+- [ ] **T013 [Cache]**: Implement `internal/cache/memory.go` using `sync.RWMutex` and an in-memory map to make `memory_test.go` pass (Green).
 
 ---
 
-## Phase 8: Status & Telemetry Endpoint
+## Phase 7: Status & Telemetry Endpoint
 
-- [ ] **T016 [Telemetry]**: [TDD] Write tests in `internal/telemetry/status_test.go` verifying `GET /_relay/status` returns JSON with uptime, token pool status (each token's masked ID, remaining quota, reset time), active relay key count, and cache count.
-- [ ] **T017 [Telemetry]**: Implement `internal/telemetry/status.go` to make `status_test.go` pass (Green).
+- [ ] **T014 [Telemetry]**: [TDD] Write tests in `internal/telemetry/status_test.go` verifying `GET /_relay/status` returns JSON with uptime, token pool status (each token's masked ID, remaining quota, reset time), active relay key count, and cache count.
+- [ ] **T015 [Telemetry]**: Implement `internal/telemetry/status.go` to make `status_test.go` pass (Green).
 
 ---
 
-## Phase 9: Application Integration & End-to-End Verification
+## Phase 8: Application Integration & End-to-End Verification
 
-- [ ] **T018**: Implement `cmd/relay/main.go` wiring all middlewares (Auth $\rightarrow$ Policy $\rightarrow$ Redirect $\rightarrow$ Cache $\rightarrow$ Proxy $\rightarrow$ Status) and setting up graceful shutdown.
-- [ ] **T019**: [TDD] Write end-to-end integration test in `cmd/relay/main_test.go` running the complete relay against a mock GitHub API and sample `policy.yaml`, verifying all user stories end-to-end.
+- [ ] **T016**: Implement `cmd/relay/main.go` wiring all middlewares (Auth $\rightarrow$ Policy $\rightarrow$ Cache $\rightarrow$ Proxy $\rightarrow$ Status) and setting up graceful shutdown.
+- [ ] **T017**: [TDD] Write end-to-end integration test in `cmd/relay/main_test.go` running the complete relay against a mock GitHub API and sample `policy.yaml`, verifying all user stories end-to-end.

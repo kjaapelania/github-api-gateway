@@ -3,7 +3,7 @@
 **Feature Branch**: `001-rate-limit-relay`
 **Created**: 2026-09-29
 **Status**: Draft
-**Input**: "GitHub API Rate Limit Relay with intelligent round-robin token pooling, unauthenticated fallback, multiple relay keys for zero-downtime rotation, enterprise YAML granular access policy with default deny, Option 2 regex/glob separation, String-or-Array flexibility, strict method validation, zero-quota caching, and latest release redirect optimization"
+**Input**: "GitHub API Rate Limit Relay with intelligent round-robin token pooling, unauthenticated fallback, multiple relay keys for zero-downtime rotation, enterprise YAML granular access policy with default deny, Option 2 regex/glob separation, String-or-Array flexibility, strict method validation, and zero-quota ETag caching"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -80,24 +80,22 @@ When all configured tokens in the pool are exhausted (or if the relay is run wit
 
 ---
 
-### User Story 6 - Latest Release Redirect Optimization (Priority: P6)
+### User Story 6 - Zero-Quota ETag In-Memory Caching (Priority: P6)
 
-GitHub's web frontend (`https://github.com/{owner}/{repo}/releases/latest` and `.../releases/latest/download/{asset}`) returns an HTTP `302 Found` redirect without consuming REST API quota and offloads large binary downloads to GitHub's CDN.
+Clients frequently query the same API endpoints (releases, commits, tags). The relay caches responses in memory and sends `If-None-Match: <ETag>` when revalidating. When GitHub returns `304 Not Modified`, GitHub charges **zero rate limit**, and the relay serves the response from memory. Furthermore, when clients download binary release assets, GitHub's API natively responds with a `302 Found` redirect to its AWS S3 CDN (`objects.githubusercontent.com`), which the relay transparently forwards, offloading large binary payload bandwidth completely.
+
+**Why this priority**: Maximizes rate limit efficiency and minimizes latency for repeated calls without requiring custom redirect hacks.
 
 **Acceptance Scenarios**:
-1. **Given** a client requests a latest release asset download at `GET /repos/{owner}/{repo}/releases/latest/download/{asset}`, **Then** the relay responds with an HTTP `302 Found` directing client to `https://github.com/{owner}/{repo}/releases/latest/download/{asset}`.
+1. **Given** an endpoint was previously cached with an `ETag`, **When** another request arrives after TTL, **Then** the relay issues an upstream conditional request with `If-None-Match`.
+2. **Given** upstream responds with `304 Not Modified`, **Then** the relay serves the cached body with status `200 OK` to the client consuming 0 quota.
+3. **Given** a request for release assets, **Then** GitHub's native `302 Found` redirect to S3 is transparently preserved for the client.
 
 ---
 
-### User Story 7 - Zero-Quota ETag In-Memory Caching (Priority: P7)
+### User Story 7 - Health & Rate Limit Telemetry (Priority: P7)
 
-Clients frequently query the same API endpoints. The relay caches responses and sends `If-None-Match: <ETag>` when revalidating. When GitHub returns `304 Not Modified`, GitHub charges **zero rate limit**, and the relay serves the response from memory.
-
----
-
-### User Story 8 - Health & Rate Limit Telemetry (Priority: P8)
-
-Operators need to monitor the health of the relay and see the live status of each token and policy rule matches.
+Operators need to monitor the health of the relay and see the live status of each token, cache stats, and policy matches.
 
 **Acceptance Scenarios**:
 1. Call `GET /_relay/status` and assert JSON contains uptime, active token pool status, cache count, and policy status.
@@ -117,6 +115,5 @@ Operators need to monitor the health of the relay and see the live status of eac
 - **FR-009**: Relay policy rules MUST strictly require `methods`. Unlisted or misspelled methods MUST cause startup validation failure.
 - **FR-010**: Relay MUST hard-block requests to sensitive user and account endpoints (`/user`, `/user/**`, `/admin/**`, `/authorizations/**`).
 - **FR-011**: If `FALLBACK_UNAUTHENTICATED=true`, relay MUST fall back to unauthenticated requests when all tokens are exhausted or no tokens are provided.
-- **FR-012**: Relay MUST issue `302 Found` redirects for release asset download requests to GitHub's direct web download URLs.
-- **FR-013**: Relay MUST cache `GET` responses with `ETag` and send `If-None-Match` upstream to leverage zero-quota `304 Not Modified` responses.
-- **FR-014**: Relay MUST expose `GET /_relay/status` with per-token quota telemetry and health.
+- **FR-012**: Relay MUST cache `GET` responses with `ETag` and send `If-None-Match` upstream to leverage zero-quota `304 Not Modified` responses.
+- **FR-013**: Relay MUST expose `GET /_relay/status` with per-token quota telemetry and health.
