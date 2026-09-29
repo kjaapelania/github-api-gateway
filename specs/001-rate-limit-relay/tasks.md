@@ -7,9 +7,9 @@
 ## Phase 1: Setup & Foundational Configuration
 
 - [x] **T000**: Configure container and developer runtime harness (`mise.toml`, `Dockerfile`, `docker-compose.yml`, `.env.example`, starter `policy.yaml`, root `.gitignore`).
-- [ ] **T001**: Initialize Go module `github-api-relay` (`go mod init github-api-relay`) and add `gopkg.in/yaml.v3`.
-- [ ] **T002**: [TDD] Write unit tests in `internal/config/config_test.go` asserting defaults (`TOKEN_MIN_REMAINING=3000`, `PORT=8080`, `FALLBACK_UNAUTHENTICATED=true`, `CACHE_TTL_SECONDS=300`) and environment variable parsing (`PORT`, `GITHUB_TOKENS`, `RELAY_AUTH_KEYS`, `POLICY_PATH`, `TOKEN_MIN_REMAINING`, `FALLBACK_UNAUTHENTICATED`, `CACHE_TTL_SECONDS`).
-- [ ] **T003**: Implement `internal/config/config.go` to make `config_test.go` pass (Green).
+- [x] **T001**: Initialize Go module `github-api-relay` (`go mod init github-api-relay`) and add `gopkg.in/yaml.v3`.
+- [x] **T002**: [TDD] Write unit tests in `internal/config/config_test.go` asserting defaults (`TOKEN_MIN_REMAINING=3000`, `PORT=8080`, `FALLBACK_UNAUTHENTICATED=true`, `CACHE_TTL_SECONDS=300`) and environment variable parsing (`PORT`, `GITHUB_TOKENS`, `RELAY_AUTH_KEYS`, `POLICY_PATH`, `TOKEN_MIN_REMAINING`, `FALLBACK_UNAUTHENTICATED`, `CACHE_TTL_SECONDS`).
+- [x] **T003**: Implement `internal/config/config.go` to make `config_test.go` pass (Green).
 
 ---
 
