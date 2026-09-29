@@ -67,12 +67,12 @@
 
 ## Phase 6: Zero-Quota ETag In-Memory Caching & S3 Redirect Preservation
 
-- [ ] **T012 [Cache]**: [TDD] Write tests in `internal/cache/memory_test.go`:
+- [x] **T012 [Cache]**: [TDD] Write tests in `internal/cache/memory_test.go`:
   - Cache response body and `ETag` on `200 OK` `GET` requests.
   - On subsequent request, verify `If-None-Match: <ETag>` is sent to upstream.
   - When upstream responds with `304 Not Modified`, verify relay serves cached body with status `200 OK` and updated rate limit headers (0 quota consumed).
   - Assert that upstream `302 Found` responses (e.g. GitHub release binary redirects to S3) are preserved and forwarded directly to the client without buffering binary bodies.
-- [ ] **T013 [Cache]**: Implement `internal/cache/memory.go` using `sync.RWMutex` and an in-memory map to make `memory_test.go` pass (Green).
+- [x] **T013 [Cache]**: Implement `internal/cache/memory.go` using `sync.RWMutex` and an in-memory map to make `memory_test.go` pass (Green).
 
 ---
 
