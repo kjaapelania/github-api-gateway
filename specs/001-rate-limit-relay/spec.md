@@ -3,7 +3,7 @@
 **Feature Branch**: `001-rate-limit-relay`
 **Created**: 2026-09-29
 **Status**: Draft
-**Input**: "GitHub API Rate Limit Relay with token pool budgeting, unauthenticated fallback, optional relay auth protection, zero-quota caching, and latest release redirect optimization"
+**Input**: "GitHub API Rate Limit Relay with token pool budgeting, unauthenticated fallback, enterprise YAML granular access policy with default deny, Option 2 regex/glob separation, zero-quota caching, and latest release redirect optimization"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -22,78 +22,93 @@ An unauthenticated developer or CI worker sends standard GitHub REST API request
 
 ---
 
-### User Story 2 - Optional Relay Authentication Protection (Priority: P2)
+### User Story 2 - Enterprise Granular Access Policy & Default Deny (Priority: P2)
 
-The operator running the relay wants to protect their 5,000+ req/hr quota from being abused by unauthorized network clients. When configured, incoming requests must supply a valid relay key.
+In an enterprise team environment, the relay must not act as an open proxy or an accidental data exfiltration channel. The operator configures a YAML policy (`policy.yaml`). The relay enforces **fail-closed Default Deny**: every request is blocked with `403 Forbidden` unless an explicit rule matches the repository, path, and HTTP method. 
 
-**Why this priority**: Critical operational security to prevent quota theft or denial-of-service when deployed on a shared network or server.
+Rules use **Option 2 (Explicit separation)**:
+* `repo` (glob, e.g. `my-company/*`) OR `repo_regex` (Go regex, e.g. `^my-company/(api|web)$`)
+* `path` (glob, e.g. `/repos/my-company/*/releases/**`) OR `path_regex` (Go regex)
+* `methods` (e.g. `["GET", "HEAD"]`)
+* Both internal company repos and external open-source repos are governed by symmetric rules to prevent leaking corporate secrets to public issues.
+* Endpoints exposing user account details (`/user`, `/user/**`, `/admin/**`, `/authorizations/**`) are hardcoded to be permanently denied.
 
-**Independent Test**: Send requests with no key, invalid key, and valid key, verifying `401 Unauthorized` vs `200 OK`.
+**Why this priority**: Essential security barrier. Prevents unauthorized access to internal private code, blocks mutating methods (`POST`/`DELETE`), and prevents exfiltrating company secrets to external public repos.
+
+**Independent Test**: 
+1. Send a request that matches no rule $\rightarrow$ assert `403 Forbidden` (Default Deny).
+2. Send a `POST` request to an allowed `GET`-only path $\rightarrow$ assert `403 Forbidden`.
+3. Send a request to `/user` $\rightarrow$ assert `403 Forbidden`.
+4. Send a request matching an allowed rule $\rightarrow$ assert `200 OK` forwarded upstream.
 
 **Acceptance Scenarios**:
-1. **Given** `RELAY_AUTH_KEY=my-internal-secret` is set in the relay environment, **When** a client sends a request without `Authorization: Bearer my-internal-secret` or `X-Relay-Key: my-internal-secret`, **Then** the relay immediately returns `401 Unauthorized` without calling upstream GitHub.
-2. **Given** `RELAY_AUTH_KEY=my-internal-secret`, **When** a client provides a valid key via `X-Relay-Key` or `Authorization`, **Then** the request is authorized and forwarded upstream (with the client's auth header replaced by the upstream GitHub token).
-3. **Given** `RELAY_AUTH_KEY` is empty or unset, **Then** the relay operates in open/public mode and accepts all incoming requests without authentication.
+1. **Given** a policy with rule `repo: "my-org/*"`, `methods: ["GET"]`, **When** a client sends `POST /repos/my-org/backend/issues`, **Then** the relay rejects with `403 Forbidden` without contacting GitHub.
+2. **Given** an invalid policy rule specifying *both* `repo` and `repo_regex`, **When** the relay starts up, **Then** it fails validation and exits with a clear startup error.
+3. **Given** a request to `/user/keys`, **Then** the relay rejects with `403 Forbidden` regardless of policy rules.
 
 ---
 
-### User Story 3 - Token Pool Management & Quota Threshold Budgeting (Priority: P3)
+### User Story 3 - Optional Relay Authentication Key (Priority: P3)
 
-The operator provides one or more GitHub tokens (`GITHUB_TOKENS=token1,token2`). The relay dynamically tracks remaining quota from GitHub's authoritative `X-RateLimit-Remaining` and `X-RateLimit-Reset` headers. When a token's remaining quota drops below a configurable threshold (`TOKEN_MIN_REMAINING`, default 10) or hits 0, the relay automatically rotates to the next available token until the exhausted token's reset window arrives.
+The operator running the relay wants to protect their internal relay endpoint so only authorized team members or CI runners with an internal secret can query the relay.
+
+**Why this priority**: Protects internal relay access.
+
+**Acceptance Scenarios**:
+1. **Given** `RELAY_AUTH_KEY=secret123`, **When** a client sends a request without `Authorization: Bearer secret123` or `X-Relay-Key: secret123`, **Then** the relay immediately returns `401 Unauthorized`.
+2. **Given** `RELAY_AUTH_KEY` is empty/unset, **Then** relay protection is disabled (delegating access control strictly to the granular policy).
+
+---
+
+### User Story 4 - Token Pool Management & Quota Threshold Budgeting (Priority: P4)
+
+The operator provides one or more GitHub tokens (`GITHUB_TOKENS=t1,t2`). The relay dynamically tracks remaining quota from GitHub's authoritative `X-RateLimit-Remaining` and `X-RateLimit-Reset` headers. When a token's remaining quota drops below `TOKEN_MIN_REMAINING` (default 10) or hits 0, the relay automatically rotates to the next available token until the exhausted token's reset window arrives.
 
 **Why this priority**: Aggregates quota across accounts and prevents sudden 403 quota lockout.
 
-**Independent Test**: Mock two tokens. Set threshold to 10. When Token 1 reports remaining = 9, the relay automatically switches subsequent requests to Token 2.
-
 **Acceptance Scenarios**:
 1. **Given** multiple tokens configured, **When** requests arrive, **Then** the relay selects tokens with remaining quota above `TOKEN_MIN_REMAINING`.
-2. **Given** the relay server restarts, **When** it initializes, **Then** it is stateless: it syncs token quota status directly from GitHub's zero-quota `GET /rate_limit` endpoint or first response headers without requiring a database.
+2. **Given** the relay server restarts, **When** it initializes, **Then** it is stateless: it syncs token quota status directly from GitHub's zero-quota `GET /rate_limit` endpoint or first response headers.
 
 ---
 
-### User Story 4 - Graceful Unauthenticated Fallback (Priority: P4)
+### User Story 5 - Graceful Unauthenticated Fallback (Priority: P5)
 
-When all configured tokens in the pool are exhausted (or if the relay is run without any tokens configured at all), the relay can fall back to unauthenticated requests if `FALLBACK_UNAUTHENTICATED=true`.
+When all configured tokens in the pool are exhausted (or if the relay is run without any tokens configured), the relay can fall back to unauthenticated requests if `FALLBACK_UNAUTHENTICATED=true`.
 
 **Why this priority**: Maximizes availability for public repository queries even when all token quotas are fully depleted.
 
-**Independent Test**: Deplete all tokens in mock upstream. With `FALLBACK_UNAUTHENTICATED=true`, verify the relay strips the `Authorization` header and forwards the request unauthenticated, returning GitHub's unauthenticated response.
-
 **Acceptance Scenarios**:
 1. **Given** all tokens have remaining = 0 and `FALLBACK_UNAUTHENTICATED=true`, **When** a request arrives, **Then** the relay strips the `Authorization` header and proxies unauthenticated.
-2. **Given** `FALLBACK_UNAUTHENTICATED=false` and all tokens are exhausted, **Then** the relay returns `429 Too Many Requests` with a descriptive JSON error and `Retry-After` header.
-3. **Given** no tokens are configured (`GITHUB_TOKENS=""`), **Then** the relay runs purely in unauthenticated caching proxy mode.
+2. **Given** `FALLBACK_UNAUTHENTICATED=false` and all tokens are exhausted, **Then** the relay returns `429 Too Many Requests`.
 
 ---
 
-### User Story 5 - Latest Release Redirect Optimization (Priority: P5)
+### User Story 6 - Latest Release Redirect Optimization (Priority: P6)
 
 GitHub's web frontend (`https://github.com/{owner}/{repo}/releases/latest` and `.../releases/latest/download/{asset}`) returns an HTTP `302 Found` redirect without consuming REST API quota and offloads large binary downloads to GitHub's CDN.
 
 **Why this priority**: Avoids burning API quota and proxying multi-megabyte binary assets through the relay.
 
-**Independent Test**: Send `GET /repos/{owner}/{repo}/releases/latest/download/{asset}` and verify the relay returns `302 Found` directing client to GitHub's web download URL directly.
-
 **Acceptance Scenarios**:
-1. **Given** a client requests a latest release asset download at `GET /repos/{owner}/{repo}/releases/latest/download/{asset}`, **Then** the relay responds with an HTTP `302 Found` to `https://github.com/{owner}/{repo}/releases/latest/download/{asset}`.
+1. **Given** a client requests a latest release asset download at `GET /repos/{owner}/{repo}/releases/latest/download/{asset}`, **Then** the relay responds with an HTTP `302 Found` directing client to `https://github.com/{owner}/{repo}/releases/latest/download/{asset}`.
 
 ---
 
-### User Story 6 - Zero-Quota ETag In-Memory Caching (Priority: P6)
+### User Story 7 - Zero-Quota ETag In-Memory Caching (Priority: P7)
 
 Clients frequently query the same API endpoints. The relay caches responses and sends `If-None-Match: <ETag>` when revalidating. When GitHub returns `304 Not Modified`, GitHub charges **zero rate limit**, and the relay serves the response from memory.
 
 **Why this priority**: Maximizes rate limit efficiency and minimizes latency for repeated calls.
 
-**Independent Test**: Make two identical `GET` requests against a mock upstream that returns an ETag. Verify the second request sends `If-None-Match` and that receiving a `304` causes the relay to return the cached `200` body to the client.
-
 ---
 
-### User Story 7 - Health & Rate Limit Telemetry (Priority: P7)
+### User Story 8 - Health & Rate Limit Telemetry (Priority: P8)
 
-Operators need to monitor the health of the relay and see the live status of each token in the pool.
+Operators need to monitor the health of the relay and see the live status of each token and policy rule matches.
 
-**Independent Test**: Call `GET /_relay/status` and assert that JSON output contains uptime, active token count, cache entries, and remaining quota per token.
+**Acceptance Scenarios**:
+1. Call `GET /_relay/status` and assert JSON contains uptime, active token pool status, cache count, and policy status.
 
 ---
 
@@ -101,11 +116,13 @@ Operators need to monitor the health of the relay and see the live status of eac
 
 - **FR-001**: Relay MUST proxy HTTP requests targeting GitHub API to `https://api.github.com`.
 - **FR-002**: Relay MUST support any valid GitHub token format (Classic `ghp_`, Fine-Grained `github_pat_`, OAuth `gho_`, GitHub App `ghs_`).
-- **FR-003**: Relay MUST support single or multiple tokens (`GITHUB_TOKENS=t1,t2`) and track remaining quota via `X-RateLimit-Remaining` and `X-RateLimit-Reset`.
-- **FR-004**: Relay MUST rotate tokens when remaining quota drops below `TOKEN_MIN_REMAINING`.
-- **FR-005**: If `FALLBACK_UNAUTHENTICATED=true`, relay MUST fall back to unauthenticated requests when all tokens are exhausted or no tokens are provided.
-- **FR-006**: If `RELAY_AUTH_KEY` is configured, relay MUST require valid bearer or `X-Relay-Key` authentication (returning `401 Unauthorized` if invalid).
-- **FR-007**: Relay MUST issue `302 Found` redirects for release asset download requests to GitHub's direct web download URLs.
-- **FR-008**: Relay MUST cache `GET` responses with `ETag` and send `If-None-Match` upstream to leverage zero-quota `304 Not Modified` responses.
-- **FR-009**: Relay MUST expose `GET /_relay/status` with per-token quota telemetry and health.
-- **FR-010**: Relay MUST be implemented strictly using the Go standard library with zero external dependencies.
+- **FR-003**: Relay MUST enforce a Fail-Closed Default Deny access policy defined in a YAML configuration file.
+- **FR-004**: Relay policy rules MUST support either `repo` (glob) OR `repo_regex` (Go regex), but NEVER both in the same rule.
+- **FR-005**: Relay policy rules MUST support either `path` (glob) OR `path_regex` (Go regex), but NEVER both in the same rule.
+- **FR-006**: Relay policy rules MUST specify allowed HTTP `methods`. Requests matching a rule with an unlisted method MUST be rejected with `403 Forbidden`.
+- **FR-007**: Relay MUST hard-block requests to sensitive user and account endpoints (`/user`, `/user/**`, `/admin/**`, `/authorizations/**`).
+- **FR-008**: Relay MUST rotate tokens when remaining quota drops below `TOKEN_MIN_REMAINING`.
+- **FR-009**: If `FALLBACK_UNAUTHENTICATED=true`, relay MUST fall back to unauthenticated requests when all tokens are exhausted or no tokens are provided.
+- **FR-010**: Relay MUST issue `302 Found` redirects for release asset download requests to GitHub's direct web download URLs.
+- **FR-011**: Relay MUST cache `GET` responses with `ETag` and send `If-None-Match` upstream to leverage zero-quota `304 Not Modified` responses.
+- **FR-012**: Relay MUST expose `GET /_relay/status` with per-token quota telemetry and health.
