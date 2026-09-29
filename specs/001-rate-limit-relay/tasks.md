@@ -7,7 +7,7 @@
 ## Phase 1: Setup & Foundational Configuration
 
 - [ ] **T001**: Initialize Go module `github-api-relay` (`go mod init github-api-relay`) and add `gopkg.in/yaml.v3`.
-- [ ] **T002**: [TDD] Write unit tests in `internal/config/config_test.go` asserting defaults and environment variable parsing (`PORT`, `GITHUB_TOKENS`, `RELAY_AUTH_KEYS`, `POLICY_PATH`, `TOKEN_MIN_REMAINING`, `FALLBACK_UNAUTHENTICATED`, `CACHE_TTL_SECONDS`).
+- [ ] **T002**: [TDD] Write unit tests in `internal/config/config_test.go` asserting defaults (`TOKEN_MIN_REMAINING=3000`, `PORT=8080`, `FALLBACK_UNAUTHENTICATED=true`, `CACHE_TTL_SECONDS=300`) and environment variable parsing (`PORT`, `GITHUB_TOKENS`, `RELAY_AUTH_KEYS`, `POLICY_PATH`, `TOKEN_MIN_REMAINING`, `FALLBACK_UNAUTHENTICATED`, `CACHE_TTL_SECONDS`).
 - [ ] **T003**: Implement `internal/config/config.go` to make `config_test.go` pass (Green).
 
 ---
@@ -32,7 +32,7 @@
 
 - [ ] **T006 [TokenPool]**: [TDD] Write unit tests in `internal/token/pool_test.go`:
   - Token selection rotates evenly between healthy tokens using atomic round-robin (T1, T2, T1, T2...).
-  - Updating token quota via `RecordUsage(token, remaining, resetTime)` marks token exhausted if `remaining < minRemaining`.
+  - Updating token quota via `RecordUsage(token, remaining, resetTime)` marks token exhausted if `remaining < minRemaining` (defaulting to 3000 buffer).
   - When a token is exhausted, round-robin automatically skips it and distributes across remaining healthy tokens.
   - When all tokens are exhausted, `Acquire()` returns fallback to unauthenticated if `fallbackUnauthenticated=true`, or returns an error if `false`.
   - Works transparently with any token prefix (`ghp_`, `github_pat_`, `gho_`, `ghs_`).

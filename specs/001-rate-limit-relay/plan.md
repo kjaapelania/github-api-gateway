@@ -5,7 +5,7 @@
 
 ## Summary
 
-Build an enterprise-grade Go reverse proxy service that provides rate-limit relief for GitHub API requests while enforcing strict security boundaries. The service manages an atomic Round-Robin multi-token pool with quota tracking, auto-skipping of exhausted tokens, and unauthenticated fallback. It supports multiple relay keys for zero-downtime secret rotation and gates all traffic behind a fail-closed YAML access policy. The policy supports Option 2 pattern matching (unambiguous separation between `repo`/`repo_regex` and `path`/`path_regex`), flexible String-or-Array syntax, mandatory validated HTTP methods, and hardcoded denylists for sensitive endpoints. Zero-quota performance is achieved via standard in-memory ETag conditional revalidation (`304 Not Modified`), with native preservation of GitHub's S3 CDN asset redirects.
+Build an enterprise-grade Go reverse proxy service that provides rate-limit relief for GitHub API requests while enforcing strict security boundaries. The service manages an atomic Round-Robin multi-token pool with quota tracking, auto-skipping of exhausted tokens (default `TOKEN_MIN_REMAINING=3000` to preserve colleague quotas), and unauthenticated fallback. It supports multiple relay keys for zero-downtime secret rotation and gates all traffic behind a fail-closed YAML access policy. The policy supports Option 2 pattern matching (unambiguous separation between `repo`/`repo_regex` and `path`/`path_regex`), flexible String-or-Array syntax, mandatory validated HTTP methods, and hardcoded denylists for sensitive endpoints. Zero-quota performance is achieved via standard in-memory ETag conditional revalidation (`304 Not Modified`), with native preservation of GitHub's S3 CDN asset redirects.
 
 ## Technical Context
 
@@ -40,7 +40,7 @@ cmd/
 
 internal/
 ├── config/
-│   ├── config.go           # Configuration parser (GITHUB_TOKENS, RELAY_AUTH_KEYS, POLICY_PATH)
+│   ├── config.go           # Configuration parser (GITHUB_TOKENS, RELAY_AUTH_KEYS, POLICY_PATH, default min remaining = 3000)
 │   └── config_test.go      # TDD tests for config defaults and multi-key parsing
 ├── policy/
 │   ├── model.go            # Rule structs with StringOrSlice YAML unmarshaler
