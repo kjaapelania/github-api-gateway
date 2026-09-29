@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github-api-relay/internal/policy"
@@ -15,13 +16,14 @@ import (
 
 // Handler proxies authorized HTTP requests to upstream GitHub while injecting tokens and recording usage.
 type Handler struct {
-	target *url.URL
-	policy *policy.Policy
-	pool   *token.Pool
+	target   *url.URL
+	policyMu sync.RWMutex
+	policy   *policy.Policy
+	pool     *token.Pool
 }
 
 // NewHandler creates a new reverse proxy handler.
-func NewHandler(targetURL string, pol *policy.Policy, pool *token.Pool) http.Handler {
+func NewHandler(targetURL string, pol *policy.Policy, pool *token.Pool) *Handler {
 	parsed, err := url.Parse(targetURL)
 	if err != nil {
 		panic("invalid target URL: " + targetURL)
@@ -34,10 +36,25 @@ func NewHandler(targetURL string, pol *policy.Policy, pool *token.Pool) http.Han
 	}
 }
 
+// SetPolicy dynamically updates the active enterprise policy.
+func (h *Handler) SetPolicy(pol *policy.Policy) {
+	h.policyMu.Lock()
+	defer h.policyMu.Unlock()
+	h.policy = pol
+}
+
+// GetPolicy retrieves the active enterprise policy.
+func (h *Handler) GetPolicy() *policy.Policy {
+	h.policyMu.RLock()
+	defer h.policyMu.RUnlock()
+	return h.policy
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Policy enforcement (Fail-Closed Default Deny)
-	if h.policy != nil {
-		allowed, reason := h.policy.Evaluate(r.Method, r.URL.Path)
+	pol := h.GetPolicy()
+	if pol != nil {
+		allowed, reason := pol.Evaluate(r.Method, r.URL.Path)
 		if !allowed {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)

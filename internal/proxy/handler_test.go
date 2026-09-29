@@ -158,3 +158,54 @@ internal_rules:
 		t.Errorf("expected no Authorization header for unauthenticated fallback, got: %s", capturedAuth)
 	}
 }
+
+func TestProxyHandler_DynamicPolicyUpdate(t *testing.T) {
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer mockUpstream.Close()
+
+	pol1, _ := policy.LoadFromBytes([]byte(`
+internal_rules:
+  - repo: "org/a"
+    methods: ["GET"]
+`))
+	pol2, _ := policy.LoadFromBytes([]byte(`
+internal_rules:
+  - repo: "org/b"
+    methods: ["GET"]
+`))
+
+	h := proxy.NewHandler(mockUpstream.URL, pol1, nil)
+
+	// Under pol1: org/a allowed, org/b blocked
+	reqA := httptest.NewRequest("GET", "/repos/org/a/releases", nil)
+	recA := httptest.NewRecorder()
+	h.ServeHTTP(recA, reqA)
+	if recA.Code != http.StatusOK {
+		t.Fatalf("expected 200 for org/a under pol1, got %d", recA.Code)
+	}
+
+	reqB := httptest.NewRequest("GET", "/repos/org/b/releases", nil)
+	recB := httptest.NewRecorder()
+	h.ServeHTTP(recB, reqB)
+	if recB.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for org/b under pol1, got %d", recB.Code)
+	}
+
+	// Update to pol2
+	h.SetPolicy(pol2)
+
+	// Under pol2: org/a blocked, org/b allowed
+	recA2 := httptest.NewRecorder()
+	h.ServeHTTP(recA2, reqA)
+	if recA2.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for org/a under pol2, got %d", recA2.Code)
+	}
+
+	recB2 := httptest.NewRecorder()
+	h.ServeHTTP(recB2, reqB)
+	if recB2.Code != http.StatusOK {
+		t.Fatalf("expected 200 for org/b under pol2, got %d", recB2.Code)
+	}
+}

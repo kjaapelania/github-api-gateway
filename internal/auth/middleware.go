@@ -4,43 +4,73 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // Middleware wraps an http.Handler to enforce pre-shared relay authentication keys.
 type Middleware func(http.Handler) http.Handler
 
-// NewMiddleware creates an authentication middleware. If keys is empty, it operates in open mode.
-func NewMiddleware(keys []string) Middleware {
-	keySet := make(map[string]bool)
+// Manager manages active relay authentication keys dynamically with thread safety.
+type Manager struct {
+	mu     sync.RWMutex
+	keySet map[string]bool
+}
+
+// NewManager creates a key manager with the provided keys.
+func NewManager(keys []string) *Manager {
+	m := &Manager{}
+	m.SetKeys(keys)
+	return m
+}
+
+// SetKeys atomically replaces the set of allowed relay authentication keys.
+func (m *Manager) SetKeys(keys []string) {
+	newSet := make(map[string]bool)
 	for _, k := range keys {
 		trimmed := strings.TrimSpace(k)
 		if trimmed != "" {
-			keySet[trimmed] = true
+			newSet[trimmed] = true
 		}
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.keySet = newSet
+}
 
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// If no keys configured, open access mode
-			if len(keySet) == 0 {
-				next.ServeHTTP(w, r)
-				return
-			}
+// KeyCount returns the number of active relay authentication keys.
+func (m *Manager) KeyCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.keySet)
+}
 
-			providedKey := extractKey(r)
-			if providedKey == "" || !keySet[providedKey] {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnauthorized)
-				_ = json.NewEncoder(w).Encode(map[string]string{
-					"error":   "unauthorized",
-					"message": "missing or invalid relay authentication key",
-				})
-				return
-			}
+// Middleware returns an http.Handler middleware that validates requests against active keys.
+func (m *Manager) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m.mu.RLock()
+		isOpen := len(m.keySet) == 0
+		providedKey := extractKey(r)
+		allowed := isOpen || m.keySet[providedKey]
+		m.mu.RUnlock()
 
+		if allowed {
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error":   "unauthorized",
+			"message": "missing or invalid relay authentication key",
 		})
-	}
+	})
+}
+
+// NewMiddleware creates an authentication middleware. If keys is empty, it operates in open mode.
+func NewMiddleware(keys []string) Middleware {
+	mgr := NewManager(keys)
+	return mgr.Middleware
 }
 
 func extractKey(r *http.Request) string {

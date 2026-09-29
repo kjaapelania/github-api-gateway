@@ -81,6 +81,21 @@ func main() {
 
 	serverCtx, serverStop := context.WithCancel(context.Background())
 
+	// Listen for SIGHUP signal to trigger zero-downtime hot-reload
+	hupChan := make(chan os.Signal, 1)
+	signal.Notify(hupChan, syscall.SIGHUP)
+	go func() {
+		for range hupChan {
+			slog.Info("SIGHUP received: reloading configuration and policy...")
+			resp, reloadErr := app.Reload()
+			if reloadErr != nil {
+				slog.Error("hot reload failed, previous configuration preserved", "error", reloadErr)
+			} else {
+				slog.Info("hot reload succeeded", "active_keys", resp.ActiveRelayKeys, "rules", resp.PolicyRules)
+			}
+		}
+	}()
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 

@@ -2,6 +2,7 @@ package token
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"time"
 )
@@ -55,6 +56,35 @@ func NewPool(tokens []string, minRemaining int, fallbackUnauthenticated bool) *P
 	}
 
 	return p
+}
+
+// UpdateTokens updates the token pool, preserving existing quota states while adding new tokens and removing deleted ones.
+func (p *Pool) UpdateTokens(tokens []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	existing := make(map[string]*TokenStatus)
+	for _, t := range p.tokens {
+		existing[t.token] = t
+	}
+
+	var newTokens []*TokenStatus
+	for _, tokStr := range tokens {
+		tokStr = strings.TrimSpace(tokStr)
+		if tokStr == "" {
+			continue
+		}
+		if prev, ok := existing[tokStr]; ok {
+			newTokens = append(newTokens, prev)
+		} else {
+			newTokens = append(newTokens, &TokenStatus{
+				token:     tokStr,
+				remaining: DefaultLimit,
+				resetTime: time.Now().Add(1 * time.Hour),
+			})
+		}
+	}
+	p.tokens = newTokens
 }
 
 // Acquire selects the token with the largest remaining quota above minRemaining,

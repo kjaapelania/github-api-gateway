@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -57,6 +58,7 @@ func TestEndToEnd_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get policy path: %v", err)
 	}
+	t.Setenv("POLICY_PATH", policyPath)
 
 	cfg := &config.Config{
 		Port:                    "8080",
@@ -240,4 +242,121 @@ func TestEndToEnd_Integration(t *testing.T) {
 			t.Errorf("unexpected redirect location: %s", loc)
 		}
 	})
+
+	// -------------------------------------------------------------------------
+	// Scenario 6: Zero-Restart Hot-Reloading (POST /_relay/reload)
+	// -------------------------------------------------------------------------
+	t.Run("Zero Restart Hot Reloading", func(t *testing.T) {
+		// 1. GET /_relay/reload should return 405 Method Not Allowed
+		res, err := client.Get(relayServer.URL + "/_relay/reload")
+		if err != nil {
+			t.Fatalf("req failed: %v", err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("expected 405 Method Not Allowed for GET /_relay/reload, got: %d", res.StatusCode)
+		}
+
+		// 2. POST /_relay/reload triggers atomic reload
+		res, err = client.Post(relayServer.URL+"/_relay/reload", "application/json", nil)
+		if err != nil {
+			t.Fatalf("reload request failed: %v", err)
+		}
+		defer res.Body.Close()
+
+		if res.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(res.Body)
+			t.Fatalf("expected 200 OK for POST /_relay/reload, got %d, body: %s", res.StatusCode, string(body))
+		}
+
+		var reloadResp struct {
+			Status          string `json:"status"`
+			ActiveRelayKeys int    `json:"active_relay_keys"`
+			PolicyRules     int    `json:"policy_rules"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&reloadResp); err != nil {
+			t.Fatalf("failed to decode reload JSON: %v", err)
+		}
+		if reloadResp.Status != "reloaded" {
+			t.Errorf("expected status 'reloaded', got %s", reloadResp.Status)
+		}
+	})
+}
+
+func TestEndToEnd_ReloadSafetyAndRollback(t *testing.T) {
+	// Setup mock upstream
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"upstream":"ok"}`))
+	}))
+	defer mockUpstream.Close()
+
+	// Create temp policy file
+	tmpPolicy, err := os.CreateTemp("", "policy-*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpPolicy.Name())
+
+	initialPolicyYAML := `
+internal_rules:
+  - name: "initial"
+    repo: "org/initial"
+    methods: ["GET"]
+`
+	_, _ = tmpPolicy.WriteString(initialPolicyYAML)
+	_ = tmpPolicy.Close()
+
+	cfg := &config.Config{
+		Port:                    "8080",
+		PolicyPath:              tmpPolicy.Name(),
+		RelayAuthKeys:           []string{"key-v1"},
+		TokenMinRemaining:       3000,
+		FallbackUnauthenticated: true,
+		CacheTTLSeconds:         300,
+	}
+
+	app, err := NewApp(cfg, mockUpstream.URL)
+	if err != nil {
+		t.Fatalf("failed to create app: %v", err)
+	}
+
+	server := httptest.NewServer(app.Handler)
+	defer server.Close()
+	client := server.Client()
+
+	// 1. Initial request under key-v1 and org/initial -> 200 OK
+	req1, _ := http.NewRequest("GET", server.URL+"/repos/org/initial/releases", nil)
+	req1.Header.Set("Authorization", "Bearer key-v1")
+	res1, _ := client.Do(req1)
+	if res1.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 under initial config, got %d", res1.StatusCode)
+	}
+	res1.Body.Close()
+
+	// 2. Corrupt the policy file with invalid syntax
+	_ = os.WriteFile(tmpPolicy.Name(), []byte("invalid: yaml: syntax: [unclosed"), 0644)
+
+	// 3. Trigger reload -> must return 400 Bad Request with rollback message
+	reloadRes, err := client.Post(server.URL+"/_relay/reload", "application/json", nil)
+	if err != nil {
+		t.Fatalf("reload post failed: %v", err)
+	}
+	defer reloadRes.Body.Close()
+
+	if reloadRes.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request on corrupt reload, got %d", reloadRes.StatusCode)
+	}
+	var errPayload map[string]string
+	_ = json.NewDecoder(reloadRes.Body).Decode(&errPayload)
+	if errPayload["config"] != "previous configuration preserved" {
+		t.Errorf("expected previous config preserved notice, got: %v", errPayload)
+	}
+
+	// 4. Verify server still functions on previous configuration!
+	res1Repeat, _ := client.Do(req1)
+	if res1Repeat.StatusCode != http.StatusOK {
+		t.Fatalf("expected server to safely maintain previous configuration after failed reload, got %d", res1Repeat.StatusCode)
+	}
+	res1Repeat.Body.Close()
 }

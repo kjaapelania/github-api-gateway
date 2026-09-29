@@ -117,3 +117,24 @@ func TestTokenPool_EmptyTokens(t *testing.T) {
 		t.Errorf("expected empty string for empty token list, got %q", tok)
 	}
 }
+
+func TestTokenPool_UpdateTokens(t *testing.T) {
+	pool := token.NewPool([]string{"token-1"}, 3000, true)
+	pool.RecordUsage("token-1", 4500, time.Now().Add(1*time.Hour))
+
+	// Update with token-1 kept, token-2 added
+	pool.UpdateTokens([]string{"token-1", "token-2"})
+
+	status := pool.Status()
+	if len(status) != 2 {
+		t.Fatalf("expected 2 tokens, got: %d", len(status))
+	}
+	// token-1 should have preserved its remaining quota (4500)
+	if status[0].Remaining != 4500 {
+		t.Errorf("expected token-1 remaining=4500, got: %d", status[0].Remaining)
+	}
+	// token-2 should be newly initialized at 5000
+	if status[1].Remaining != 5000 {
+		t.Errorf("expected token-2 remaining=5000, got: %d", status[1].Remaining)
+	}
+}
