@@ -5,42 +5,30 @@
 
 ## Summary
 
-Build a high-performance, zero-external-dependency Go reverse proxy service that intercepts GitHub API traffic to eliminate unauthenticated rate limits. The service injects configured GitHub PAT credentials (elevating quota from 60 to 5,000 req/hr), enforces optional bearer auth protection on the relay, directly redirects latest release downloads (`302 Found`) to offload bandwidth and save API calls, and maintains an in-memory ETag cache that leverages `304 Not Modified` conditional requests for zero-quota repeated queries.
+Build a high-performance, zero-external-dependency Go reverse proxy service that eliminates unauthenticated rate limits. The service manages a pool of GitHub tokens (Classic, Fine-Grained, OAuth, App), tracks live quota through GitHub's response headers, rotates away from tokens whose remaining quota falls below `TOKEN_MIN_REMAINING`, falls back to unauthenticated requests if desired, optionally enforces relay authentication (`RELAY_AUTH_KEY`), redirects latest release downloads (`302 Found`), and leverages in-memory ETag caching for zero-quota `304 Not Modified` revalidation.
 
 ## Technical Context
 
-**Language/Version**: Go 1.22+ (using only standard library)
-**Primary Dependencies**: None (Standard library: `net/http`, `net/http/httputil`, `sync`, `log/slog`, `time`)
-**Storage**: In-memory LRU/map cache with mutex synchronization (zero external DB required)
+**Language/Version**: Go 1.22+ (using strictly the Go standard library)
+**Primary Dependencies**: None (Standard library: `net/http`, `net/http/httputil`, `sync`, `log/slog`, `time`, `strings`)
+**Storage**: In-memory thread-safe maps and sync primitives (resilient across restarts via GitHub's authoritative rate-limit headers)
 **Testing**: Go standard `testing` package with `net/http/httptest`
-**Target Platform**: Linux / macOS cross-platform binary or container
-**Project Type**: HTTP microservice / daemon
+**Target Platform**: Cross-platform binary / container
 **Performance Goals**: < 2ms proxy overhead, < 30MB memory footprint, 1,000+ concurrent requests
-**Constraints**: Zero external dependencies (per Constitution Principle I); strict TDD (Principle III)
+**Constraints**: Zero external dependencies (Constitution Principle I); strict TDD (Principle III)
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+*GATE: Must pass before implementation.*
 
 | Principle | Requirement | Compliance Plan | Status |
 | :--- | :--- | :--- | :--- |
-| **I. Go Standard Library First** | Zero external dependencies | Use exclusively `net/http`, `net/http/httputil`, `sync`, `log/slog`. | **PASS** |
-| **II. Rate Limit Relief** | Token injection + ETag caching | Inject `GITHUB_TOKEN` into `Authorization`; leverage `If-None-Match` upstream. | **PASS** |
-| **III. Strict TDD** | Tests written before code | Write failing `httptest` cases for each module before implementing code. | **PASS** |
+| **I. Go Standard Library First** | Zero external dependencies | Standard library `net/http`, `sync`, `log/slog` exclusively. | **PASS** |
+| **II. Rate Limit Relief** | Token pool + fallback + ETag cache | Dynamic header-based token pool rotation, unauthenticated fallback, and ETag revalidation. | **PASS** |
+| **III. Strict TDD** | Tests written before code | Write failing `httptest` cases for each module before implementation. | **PASS** |
 | **IV. Observability & Security** | Token masking + status metrics | Never log raw tokens; expose `/_relay/status` with quota telemetry. | **PASS** |
 
-## Project Structure
-
-### Documentation (this feature)
-
-```text
-specs/001-rate-limit-relay/
-├── spec.md              # Requirements, user stories, success criteria
-├── plan.md              # Architectural plan and package layout
-└── tasks.md             # Actionable, TDD-ordered tasks (/speckit-tasks output)
-```
-
-### Source Code Layout
+## Source Code Layout
 
 ```text
 cmd/
@@ -49,8 +37,11 @@ cmd/
 
 internal/
 ├── config/
-│   ├── config.go           # Configuration parser (env vars & flags)
-│   └── config_test.go      # TDD tests for default/custom config
+│   ├── config.go           # Configuration parser (GITHUB_TOKENS, RELAY_AUTH_KEY, etc.)
+│   └── config_test.go      # TDD tests for config defaults and parsing
+├── token/
+│   ├── pool.go             # Thread-safe TokenPool with quota tracking, rotation, & fallback
+│   └── pool_test.go        # TDD tests for rotation, thresholds, and fallback behavior
 ├── auth/
 │   ├── middleware.go       # Optional relay protection (RELAY_AUTH_KEY validation)
 │   └── middleware_test.go  # TDD tests for 401 Unauthorized vs authorized pass-through
@@ -61,15 +52,11 @@ internal/
 │   ├── memory.go           # In-memory ETag response cache & 304 revalidation
 │   └── memory_test.go      # TDD tests for cache hits, misses, and 304 handling
 ├── proxy/
-│   ├── handler.go          # ReverseProxy handler injecting GITHUB_TOKEN & rate limit headers
+│   ├── handler.go          # ReverseProxy handler using TokenPool & rate limit header propagation
 │   └── handler_test.go     # TDD tests using mock upstream GitHub server
 └── telemetry/
-    ├── status.go           # /_relay/status handler (exposing rate limit & uptime)
+    ├── status.go           # /_relay/status handler (exposing per-token quota & uptime)
     └── status_test.go      # TDD tests for status endpoint
 ```
 
 **Structure Decision**: Idiomatic Go standard layout separating binary entry point (`cmd/relay`) from testable, decoupled internal packages (`internal/*`).
-
-## Complexity Tracking
-
-*No violations. All components adhere strictly to the Go standard library and Constitution.*
