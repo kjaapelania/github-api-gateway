@@ -85,5 +85,5 @@
 
 ## Phase 8: Application Integration & End-to-End Verification
 
-- [ ] **T016**: Implement `cmd/relay/main.go` wiring all middlewares (Auth $\rightarrow$ Policy $\rightarrow$ Cache $\rightarrow$ Proxy $\rightarrow$ Status) and setting up graceful shutdown.
-- [ ] **T017**: [TDD] Write end-to-end integration test in `cmd/relay/main_test.go` running the complete relay against a mock GitHub API and sample `policy.yaml`, verifying all user stories end-to-end.
+- [x] **T016**: Implement `cmd/relay/main.go` wiring all middlewares (Auth → Policy → Cache → Proxy → Status) and setting up graceful shutdown.
+- [x] **T017**: [TDD] Write end-to-end integration test in `cmd/relay/main_test.go` running the complete relay against a mock GitHub API and sample `policy.yaml`, verifying all user stories end-to-end.
