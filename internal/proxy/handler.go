@@ -1,0 +1,120 @@
+package proxy
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github-api-relay/internal/policy"
+	"github-api-relay/internal/token"
+)
+
+// Handler proxies authorized HTTP requests to upstream GitHub while injecting tokens and recording usage.
+type Handler struct {
+	target *url.URL
+	policy *policy.Policy
+	pool   *token.Pool
+}
+
+// NewHandler creates a new reverse proxy handler.
+func NewHandler(targetURL string, pol *policy.Policy, pool *token.Pool) http.Handler {
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		panic("invalid target URL: " + targetURL)
+	}
+
+	return &Handler{
+		target: parsed,
+		policy: pol,
+		pool:   pool,
+	}
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// 1. Policy enforcement (Fail-Closed Default Deny)
+	if h.policy != nil {
+		allowed, reason := h.policy.Evaluate(r.Method, r.URL.Path)
+		if !allowed {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":   "forbidden",
+				"reason":  reason,
+				"path":    r.URL.Path,
+				"message": "request blocked by relay enterprise access policy",
+			})
+			return
+		}
+	}
+
+	// 2. Acquire a token from pool
+	var tok string
+	if h.pool != nil {
+		var err error
+		tok, err = h.pool.Acquire()
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error":   "rate_limited",
+				"message": err.Error(),
+			})
+			return
+		}
+	}
+
+	// 3. Configure reverse proxy
+	proxy := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			req.URL.Scheme = h.target.Scheme
+			req.URL.Host = h.target.Host
+			req.Host = h.target.Host
+
+			// Ensure prefix path is preserved
+			if h.target.Path != "" && h.target.Path != "/" {
+				req.URL.Path = singleJoiningSlash(h.target.Path, req.URL.Path)
+			}
+
+			// Token injection & stripping client auth
+			if tok != "" {
+				req.Header.Set("Authorization", "Bearer "+tok)
+			} else {
+				req.Header.Del("Authorization")
+			}
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			// Record rate limit headers if present
+			if h.pool != nil && tok != "" {
+				remainingStr := resp.Header.Get("X-RateLimit-Remaining")
+				resetStr := resp.Header.Get("X-RateLimit-Reset")
+
+				if remainingStr != "" && resetStr != "" {
+					remaining, err1 := strconv.Atoi(remainingStr)
+					resetEpoch, err2 := strconv.ParseInt(resetStr, 10, 64)
+					if err1 == nil && err2 == nil {
+						h.pool.RecordUsage(tok, remaining, time.Unix(resetEpoch, 0))
+					}
+				}
+			}
+			return nil
+		},
+	}
+
+	proxy.ServeHTTP(w, r)
+}
+
+func singleJoiningSlash(a, b string) string {
+	aslash := strings.HasSuffix(a, "/")
+	bslash := strings.HasPrefix(b, "/")
+	switch {
+	case aslash && bslash:
+		return a + b[1:]
+	case !aslash && !bslash:
+		return a + "/" + b
+	}
+	return a + b
+}

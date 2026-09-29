@@ -44,14 +44,14 @@
 
 ## Phase 4: Core Reverse Proxy with Policy Enforcement & Token Injection
 
-- [ ] **T008 [Proxy]**: [TDD] Write unit tests in `internal/proxy/handler_test.go` with an `httptest.Server`:
+- [x] **T008 [Proxy]**: [TDD] Write unit tests in `internal/proxy/handler_test.go` with an `httptest.Server`:
   - Requests blocked by `PolicyEvaluator` are rejected immediately with `403 Forbidden` without contacting upstream.
   - Allowed requests have `Authorization: Bearer <TOKEN>` injected from `TokenPool`.
   - Client-supplied `Authorization` headers are stripped/overwritten.
   - Unauthenticated fallback requests are forwarded without an `Authorization` header.
   - Upstream rate-limit headers (`X-RateLimit-Remaining`, `X-RateLimit-Reset`) are parsed and fed to `TokenPool.RecordUsage()`.
   - Upstream headers and status codes are propagated back to the client.
-- [ ] **T009 [Proxy]**: Implement `internal/proxy/handler.go` using `net/http/httputil.ReverseProxy` with custom `Director` and `ModifyResponse` to make `handler_test.go` pass (Green).
+- [x] **T009 [Proxy]**: Implement `internal/proxy/handler.go` using `net/http/httputil.ReverseProxy` with custom `Director` and `ModifyResponse` to make `handler_test.go` pass (Green).
 
 ---
 
