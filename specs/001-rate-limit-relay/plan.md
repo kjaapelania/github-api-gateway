@@ -5,13 +5,13 @@
 
 ## Summary
 
-Build an enterprise-grade Go reverse proxy service that provides rate-limit relief for GitHub API requests while enforcing strict security boundaries. The service manages an atomic Round-Robin multi-token pool with quota tracking, auto-skipping of exhausted tokens (default `TOKEN_MIN_REMAINING=3000` to preserve colleague quotas), and unauthenticated fallback. It supports multiple relay keys for zero-downtime secret rotation and gates all traffic behind a fail-closed YAML access policy. The policy supports Option 2 pattern matching (unambiguous separation between `repo`/`repo_regex` and `path`/`path_regex`), flexible String-or-Array syntax, mandatory validated HTTP methods, and hardcoded denylists for sensitive endpoints. Zero-quota performance is achieved via standard in-memory ETag conditional revalidation (`304 Not Modified`), with native preservation of GitHub's S3 CDN asset redirects.
+Build an enterprise-grade Go reverse proxy service that provides rate-limit relief for GitHub API requests while enforcing strict security boundaries. The service manages an inline multi-token pool with Largest Remaining Quota selection, unified 10s reset buffer & probe cooldown (zero background threads), considerate default 3000 token reserve, and unauthenticated fallback. It supports multiple relay keys for zero-downtime secret rotation and gates all traffic behind a fail-closed YAML access policy. The policy supports Option 2 pattern matching (unambiguous separation between `repo`/`repo_regex` and `path`/`path_regex`), flexible String-or-Array syntax, mandatory validated HTTP methods, and hardcoded denylists for sensitive endpoints. Zero-quota performance is achieved via standard in-memory ETag conditional revalidation (`304 Not Modified`), with native preservation of GitHub's S3 CDN asset redirects.
 
 ## Technical Context
 
 **Language/Version**: Go 1.22+
 **Primary Dependencies**: 
-- Go standard library (`net/http`, `net/http/httputil`, `sync`, `sync/atomic`, `regexp`, `log/slog`, `time`, `path`, `strings`)
+- Go standard library (`net/http`, `net/http/httputil`, `sync`, `regexp`, `log/slog`, `time`, `path`, `strings`)
 - `gopkg.in/yaml.v3` (Authorized by Constitution Principle I Amendment for YAML policy parsing)
 **Storage**: In-memory thread-safe maps and sync primitives (resilient across restarts via GitHub's authoritative rate-limit headers)
 **Testing**: Go standard `testing` package with `net/http/httptest`
@@ -26,7 +26,7 @@ Build an enterprise-grade Go reverse proxy service that provides rate-limit reli
 | Principle | Requirement | Compliance Plan | Status |
 | :--- | :--- | :--- | :--- |
 | **I. Controlled Dependencies** | Standard lib + `yaml.v3` exemption | Use standard library for networking, regex, and concurrency; `gopkg.in/yaml.v3` exclusively for policy parsing. | **PASS** |
-| **II. Rate Limit Relief** | Round-robin pool + fallback + ETag cache | Dynamic header-based token pool rotation, unauthenticated fallback, and ETag revalidation. | **PASS** |
+| **II. Rate Limit Relief** | Largest-remaining pool + fallback + ETag cache | Dynamic header-based token pool selection, unauthenticated fallback, and ETag revalidation. | **PASS** |
 | **III. Strict TDD** | Tests written before code | Write failing `httptest` cases for each module before implementation. | **PASS** |
 | **IV. Observability & Security** | Token masking + status metrics | Never log raw tokens; expose `/_relay/status` with quota telemetry. | **PASS** |
 | **V. Fail-Closed Governance** | Hardcoded default deny & mutual exclusivity | Default deny enforced in code; reject conflicting `repo`/`repo_regex` at startup; block `/user/**`. | **PASS** |
@@ -48,8 +48,8 @@ internal/
 │   ├── parser.go           # YAML parser (gopkg.in/yaml.v3) & method/pattern startup validation
 │   └── policy_test.go      # TDD tests for policy evaluation, default deny, string/array, and validation errors
 ├── token/
-│   ├── pool.go             # Thread-safe Round-Robin TokenPool with quota tracking, auto-skip, & fallback
-│   └── pool_test.go        # TDD tests for round-robin rotation, thresholds, and fallback behavior
+│   ├── pool.go             # Thread-safe Largest-Remaining TokenPool with 10s cooldown & unauthenticated fallback
+│   └── pool_test.go        # TDD tests for largest-remaining selection, 10s cooldown, thresholds, and fallback behavior
 ├── auth/
 │   ├── middleware.go       # Multi-key relay protection (RELAY_AUTH_KEYS set validation)
 │   └── middleware_test.go  # TDD tests for multi-key authorization, rotation, and 401 Unauthorized

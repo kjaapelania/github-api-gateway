@@ -3,7 +3,7 @@
 **Feature Branch**: `001-rate-limit-relay`
 **Created**: 2026-09-29
 **Status**: Draft
-**Input**: "GitHub API Rate Limit Relay with intelligent round-robin token pooling, unauthenticated fallback, multiple relay keys for zero-downtime rotation, enterprise YAML granular access policy with default deny, Option 2 regex/glob separation, String-or-Array flexibility, strict method validation, considerate 3000 default token reserve, and zero-quota ETag caching"
+**Input**: "GitHub API Rate Limit Relay with intelligent largest-remaining token pooling, unified 10s reset buffer, unauthenticated fallback, multiple relay keys for zero-downtime rotation, enterprise YAML granular access policy with default deny, Option 2 regex/glob separation, String-or-Array flexibility, strict method validation, considerate 3000 default token reserve, and zero-quota ETag caching"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -57,18 +57,18 @@ The operator running the relay wants to protect their internal relay endpoint so
 
 ---
 
-### User Story 4 - Intelligent Round-Robin Token Pool & Considerate Quota Budgeting (Priority: P4)
+### User Story 4 - Largest Remaining Quota Selection & Considerate Budgeting (Priority: P4)
 
-The operator provides multiple GitHub tokens (`GITHUB_TOKENS=t1,t2,t3`). The relay alternates requests evenly across all tokens using an atomic **Round-Robin** strategy to distribute rate-limit consumption evenly across accounts. The relay dynamically tracks remaining quota from GitHub's authoritative `X-RateLimit-Remaining` and `X-RateLimit-Reset` headers. 
+The operator provides multiple GitHub tokens (`GITHUB_TOKENS=t1,t2,t3`). Instead of blind round-robin, the relay dynamically selects the token with the **Largest Remaining Quota** above `TOKEN_MIN_REMAINING`. This automatically protects colleagues whose tokens have been used locally and balances consumption.
 
-**Considerate Quota Reserve**: To protect colleagues whose personal PATs may be used to bootstrap the relay, `TOKEN_MIN_REMAINING` defaults to **`3000`** (out of 5,000). The relay borrows at most 2,000 calls per hour per token, leaving a generous 3,000-call reserve for the colleague's local Git CLI and IDE extensions. When a token's remaining quota drops below `TOKEN_MIN_REMAINING`, the round-robin selector **automatically skips that token** and continues balancing across the remaining healthy tokens until the reset window arrives. Dedicated bot tokens can override this buffer to a lower value (e.g. `50`).
-
-**Why this priority**: Aggregates quota across accounts while guaranteeing that colleagues who contribute tokens never experience personal lockout.
+**Considerate Quota Reserve & Clock Drift Safety**:
+- `TOKEN_MIN_REMAINING` defaults to **`3000`** (out of 5,000) to guarantee a generous reserve for the token owner's personal work.
+- **Unified 10-Second Reset & Cooldown**: When a low-quota token's `X-RateLimit-Reset` timestamp passes, the relay waits a **10-second buffer** (`ResetTime + 10s`) before sending an inline probe request. If GitHub has not yet rolled over the quota window, the relay enforces a **10-second probe cooldown** (`NextProbeTime = Now + 10s`), preventing tight loops or quota hammering while self-healing within seconds.
 
 **Acceptance Scenarios**:
-1. **Given** two healthy tokens T1 and T2, **When** successive requests arrive, **Then** the relay alternates T1, T2, T1, T2 in round-robin sequence.
-2. **Given** T1's remaining quota drops to 2,999 (below the 3,000 default threshold), **When** subsequent requests arrive, **Then** the relay routes 100% of requests to T2, skipping T1 until its `X-RateLimit-Reset` timestamp passes.
-3. **Given** the relay server restarts, **When** it initializes, **Then** it is stateless: it syncs token quota status directly from GitHub's zero-quota `GET /rate_limit` endpoint or first response headers.
+1. **Given** T1 has remaining = 4,500 and T2 has remaining = 3,200, **When** a request arrives, **Then** the relay selects T1 because it has the largest remaining quota.
+2. **Given** T1's remaining quota drops below 3,000, **When** subsequent requests arrive, **Then** the relay sidelines T1 and routes to other eligible tokens.
+3. **Given** T1 reaches its reset time, **When** `Now > ResetTime + 10s`, **Then** the relay probes T1 with a client request. If GitHub rolled over, T1 returns to 4,999; if delayed, T1 is throttled from further probes for 10 seconds.
 
 ---
 
@@ -102,13 +102,14 @@ Operators need to monitor the health of the relay and see the live status of eac
 - **FR-001**: Relay MUST proxy HTTP requests targeting GitHub API to `https://api.github.com`.
 - **FR-002**: Relay MUST support any valid GitHub token format (Classic `ghp_`, Fine-Grained `github_pat_`, OAuth `gho_`, GitHub App `ghs_`).
 - **FR-003**: Relay MUST support multiple relay authentication keys (`RELAY_AUTH_KEYS` / `client_keys`) for zero-downtime rotation.
-- **FR-004**: Relay MUST balance requests across configured tokens using an atomic Round-Robin selector, automatically skipping tokens whose remaining quota is below `TOKEN_MIN_REMAINING` (default: 3000).
-- **FR-005**: Relay MUST enforce a Fail-Closed Default Deny access policy defined in a YAML configuration file.
-- **FR-006**: Policy attributes `repo`, `repo_regex`, `path`, and `path_regex` MUST accept either a single string or an array of strings.
-- **FR-007**: Relay policy rules MUST support either `repo` (glob) OR `repo_regex` (Go regex), but NEVER both in the same rule.
-- **FR-008**: Relay policy rules MUST support either `path` (glob) OR `path_regex` (Go regex), but NEVER both in the same rule.
-- **FR-009**: Relay policy rules MUST strictly require `methods`. Unlisted or misspelled methods MUST cause startup validation failure.
-- **FR-010**: Relay MUST hard-block requests to sensitive user and account endpoints (`/user`, `/user/**`, `/admin/**`, `/authorizations/**`).
-- **FR-011**: If `FALLBACK_UNAUTHENTICATED=true`, relay MUST fall back to unauthenticated requests when all tokens are exhausted or no tokens are provided.
-- **FR-012**: Relay MUST cache `GET` responses with `ETag` and send `If-None-Match` upstream to leverage zero-quota `304 Not Modified` responses.
-- **FR-013**: Relay MUST expose `GET /_relay/status` with per-token quota telemetry and health.
+- **FR-004**: Relay MUST select tokens using a Largest Remaining Quota First strategy, automatically skipping tokens whose remaining quota is below `TOKEN_MIN_REMAINING` (default: 3000).
+- **FR-005**: Relay MUST enforce a unified 10-second post-reset buffer and 10-second probe cooldown for reset detection without background threads.
+- **FR-006**: Relay MUST enforce a Fail-Closed Default Deny access policy defined in a YAML configuration file.
+- **FR-007**: Policy attributes `repo`, `repo_regex`, `path`, and `path_regex` MUST accept either a single string or an array of strings.
+- **FR-008**: Relay policy rules MUST support either `repo` (glob) OR `repo_regex` (Go regex), but NEVER both in the same rule.
+- **FR-009**: Relay policy rules MUST support either `path` (glob) OR `path_regex` (Go regex), but NEVER both in the same rule.
+- **FR-010**: Relay policy rules MUST strictly require `methods`. Unlisted or misspelled methods MUST cause startup validation failure.
+- **FR-011**: Relay MUST hard-block requests to sensitive user and account endpoints (`/user`, `/user/**`, `/admin/**`, `/authorizations/**`).
+- **FR-012**: If `FALLBACK_UNAUTHENTICATED=true`, relay MUST fall back to unauthenticated requests when all tokens are exhausted or no tokens are provided.
+- **FR-013**: Relay MUST cache `GET` responses with `ETag` and send `If-None-Match` upstream to leverage zero-quota `304 Not Modified` responses.
+- **FR-014**: Relay MUST expose `GET /_relay/status` with per-token quota telemetry and health.

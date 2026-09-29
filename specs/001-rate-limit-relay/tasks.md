@@ -28,16 +28,16 @@
 
 ---
 
-## Phase 3: Intelligent Round-Robin Token Pool & Fallback Management
+## Phase 3: Largest-Remaining Token Pool & 10s Cooldown Management
 
 - [ ] **T006 [TokenPool]**: [TDD] Write unit tests in `internal/token/pool_test.go`:
-  - Token selection rotates evenly between healthy tokens using atomic round-robin (T1, T2, T1, T2...).
-  - Updating token quota via `RecordUsage(token, remaining, resetTime)` marks token exhausted if `remaining < minRemaining` (defaulting to 3000 buffer).
-  - When a token is exhausted, round-robin automatically skips it and distributes across remaining healthy tokens.
-  - When all tokens are exhausted, `Acquire()` returns fallback to unauthenticated if `fallbackUnauthenticated=true`, or returns an error if `false`.
+  - Token selection chooses the token with the Largest Remaining Quota among tokens with remaining >= minRemaining (default: 3000).
+  - When all tokens are below minRemaining, selection waits until `Now > ResetTime + 10s`.
+  - When probed after reset time and GitHub still reports `remaining < minRemaining` (delayed rollover), assert next probe is throttled for 10 seconds.
+  - When all tokens are exhausted and past cooldown, `Acquire()` returns fallback to unauthenticated if `fallbackUnauthenticated=true`, or returns an error if `false`.
   - Works transparently with any token prefix (`ghp_`, `github_pat_`, `gho_`, `ghs_`).
   - Works with empty token list (unauthenticated-only mode).
-- [ ] **T007 [TokenPool]**: Implement `internal/token/pool.go` using `sync.RWMutex` and `sync/atomic` to make `pool_test.go` pass (Green).
+- [ ] **T007 [TokenPool]**: Implement `internal/token/pool.go` using `sync.RWMutex` to make `pool_test.go` pass (Green).
 
 ---
 
