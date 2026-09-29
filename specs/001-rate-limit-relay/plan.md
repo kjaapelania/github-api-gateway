@@ -5,7 +5,7 @@
 
 ## Summary
 
-Build an enterprise-grade Go reverse proxy service that provides rate-limit relief for GitHub API requests while enforcing strict security boundaries. The service manages a multi-token pool with quota rotation and unauthenticated fallback, and gates all traffic behind a fail-closed YAML access policy. The policy supports Option 2 pattern matching (unambiguous separation between `repo`/`repo_regex` and `path`/`path_regex`), method filtering, and hardcoded denylists for sensitive endpoints. In addition, it optimizes latest release downloads via `302 Found` redirects and leverages in-memory ETag caching for zero-quota `304 Not Modified` responses.
+Build an enterprise-grade Go reverse proxy service that provides rate-limit relief for GitHub API requests while enforcing strict security boundaries. The service manages a multi-token pool with quota rotation and unauthenticated fallback, and gates all traffic behind a fail-closed YAML access policy. The policy supports Option 2 pattern matching (unambiguous separation between `repo`/`repo_regex` and `path`/`path_regex`), flexible String-or-Array syntax, mandatory validated HTTP methods, and hardcoded denylists for sensitive endpoints. In addition, it optimizes latest release downloads via `302 Found` redirects and leverages in-memory ETag caching for zero-quota `304 Not Modified` responses.
 
 ## Technical Context
 
@@ -43,10 +43,10 @@ internal/
 │   ├── config.go           # Configuration parser (GITHUB_TOKENS, POLICY_PATH, etc.)
 │   └── config_test.go      # TDD tests for config defaults and parsing
 ├── policy/
-│   ├── model.go            # Rule structs (repo/repo_regex, path/path_regex, methods)
+│   ├── model.go            # Rule structs with StringOrSlice YAML unmarshaler
 │   ├── evaluator.go        # Fail-closed policy evaluator (denylist, glob, regex, method match)
-│   ├── parser.go           # YAML parser (gopkg.in/yaml.v3) & mutual exclusivity validation
-│   └── policy_test.go      # TDD tests for policy evaluation, default deny, and validation errors
+│   ├── parser.go           # YAML parser (gopkg.in/yaml.v3) & method/pattern startup validation
+│   └── policy_test.go      # TDD tests for policy evaluation, default deny, string/array, and validation errors
 ├── token/
 │   ├── pool.go             # Thread-safe TokenPool with quota tracking, rotation, & fallback
 │   └── pool_test.go        # TDD tests for rotation, thresholds, and fallback behavior
