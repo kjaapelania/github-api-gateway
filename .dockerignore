@@ -1,0 +1,7 @@
+.git
+.specify
+.agents
+specs
+bin
+.env
+*.log

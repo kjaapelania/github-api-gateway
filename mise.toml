@@ -1,0 +1,28 @@
+[tools]
+go = "latest"
+
+[env]
+PORT = "8080"
+TOKEN_MIN_REMAINING = "3000"
+FALLBACK_UNAUTHENTICATED = "true"
+POLICY_PATH = "policy.yaml"
+
+[tasks.test]
+description = "Run all Go unit tests"
+run = "go test -v ./..."
+
+[tasks.watch]
+description = "Continuously run tests (ideal for Herdr test-watcher pane)"
+run = "while true; do clear; go test -v ./...; sleep 2; done"
+
+[tasks.build]
+description = "Build relay binary locally"
+run = "go build -o bin/relay ./cmd/relay"
+
+[tasks."docker:build"]
+description = "Build minimal Docker container image"
+run = "docker build -t github-api-relay:latest ."
+
+[tasks."docker:run"]
+description = "Run relay in Docker container"
+run = "docker run --rm -p 8080:8080 -v $(pwd)/policy.yaml:/app/policy.yaml:ro --env-file .env github-api-relay:latest"
