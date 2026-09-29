@@ -57,11 +57,11 @@
 
 ## Phase 5: Multiple Relay Authentication Keys (Zero-Downtime Rotation)
 
-- [ ] **T010 [Auth]**: [TDD] Write tests in `internal/auth/middleware_test.go`:
+- [x] **T010 [Auth]**: [TDD] Write tests in `internal/auth/middleware_test.go`:
   - When `RELAY_AUTH_KEYS` contains multiple keys (`key1,key2`), requests with either `key1` or `key2` in `Authorization: Bearer <KEY>` or `X-Relay-Key: <KEY>` are accepted.
   - Unknown keys or missing keys receive `401 Unauthorized` with JSON error.
   - When `RELAY_AUTH_KEYS` is empty, all requests pass through (open mode).
-- [ ] **T011 [Auth]**: Implement `internal/auth/middleware.go` with set-based key lookup to make `middleware_test.go` pass (Green).
+- [x] **T011 [Auth]**: Implement `internal/auth/middleware.go` with set-based key lookup to make `middleware_test.go` pass (Green).
 
 ---
 

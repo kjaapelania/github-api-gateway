@@ -13,7 +13,7 @@ run = "go test -v ./..."
 
 [tasks.watch]
 description = "Continuously run tests (ideal for Herdr test-watcher pane)"
-run = "while true; do clear; go test -v ./...; sleep 2; done"
+run = "while true; do clear; go test -v ./... || true; sleep 2; done"
 
 [tasks.build]
 description = "Build relay binary locally"
