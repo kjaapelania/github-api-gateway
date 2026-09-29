@@ -15,7 +15,7 @@
 
 ## Phase 2: Enterprise Granular Access Policy (Fail-Closed Default Deny)
 
-- [ ] **T004 [Policy]**: [TDD] Write unit tests in `internal/policy/policy_test.go`:
+- [x] **T004 [Policy]**: [TDD] Write unit tests in `internal/policy/policy_test.go`:
   - Assert String-or-Array deserialization: `repo: "org/a"` and `repo: ["org/a", "org/b"]` both parse into slice.
   - Assert policy validation fails on startup if a rule specifies *both* `repo` and `repo_regex`, or *both* `path` and `path_regex` (Mutual Exclusivity).
   - Assert policy validation fails on startup if `methods` is missing or contains invalid methods like `GTE`.
@@ -25,7 +25,7 @@
   - Assert regex matching works for `repo_regex: "^my-org/(api|worker)$"` and `path_regex: "^/repos/[^/]+/[^/]+/releases/.*$"`.
   - Assert scoping: rule with only `repo` matches any path; rule with only `path` matches any repo; rule with only `methods` matches globally.
   - Assert method filtering: requesting `POST` on a rule allowing only `["GET", "HEAD"]` returns `403 Forbidden`.
-- [ ] **T005 [Policy]**: Implement `internal/policy/model.go` (with `StringOrSlice` unmarshaler), `internal/policy/parser.go`, and `internal/policy/evaluator.go` to make `policy_test.go` pass (Green).
+- [x] **T005 [Policy]**: Implement `internal/policy/model.go` (with `StringOrSlice` unmarshaler), `internal/policy/parser.go`, and `internal/policy/evaluator.go` to make `policy_test.go` pass (Green).
 
 ---
 
