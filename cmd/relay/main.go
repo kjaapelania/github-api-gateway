@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,6 +18,16 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
+	portFlag := flag.String("port", "", "Port to bind locally (overrides PORT)")
+	policyFlag := flag.String("policy", "", "Path to policy.yaml (overrides POLICY_PATH)")
+	authKeysFlag := flag.String("auth-keys", "", "Comma-separated relay auth keys (overrides RELAY_AUTH_KEYS)")
+	tokensFlag := flag.String("tokens", "", "Comma-separated GitHub tokens (overrides GITHUB_TOKENS)")
+	minRemainingFlag := flag.Int("min-remaining", -1, "Minimum remaining quota buffer (overrides TOKEN_MIN_REMAINING)")
+	fallbackFlag := flag.String("fallback", "", "Fallback to unauthenticated (true/false, overrides FALLBACK_UNAUTHENTICATED)")
+	cacheTTLFlag := flag.Int("cache-ttl", -1, "Cache TTL seconds (overrides CACHE_TTL_SECONDS)")
+	targetURLFlag := flag.String("target-url", "", "Upstream GitHub API URL (overrides GITHUB_API_URL)")
+	flag.Parse()
+
 	slog.Info("starting github-api-relay")
 
 	cfg, err := config.Load()
@@ -24,8 +36,33 @@ func main() {
 		os.Exit(1)
 	}
 
+	// CLI flags override environment variables and .env
+	if *portFlag != "" {
+		cfg.Port = *portFlag
+	}
+	if *policyFlag != "" {
+		cfg.PolicyPath = *policyFlag
+	}
+	if *authKeysFlag != "" {
+		cfg.RelayAuthKeys = splitCSV(*authKeysFlag)
+	}
+	if *tokensFlag != "" {
+		cfg.GitHubTokens = splitCSV(*tokensFlag)
+	}
+	if *minRemainingFlag >= 0 {
+		cfg.TokenMinRemaining = *minRemainingFlag
+	}
+	if *fallbackFlag != "" {
+		cfg.FallbackUnauthenticated = (*fallbackFlag == "true" || *fallbackFlag == "1")
+	}
+	if *cacheTTLFlag >= 0 {
+		cfg.CacheTTLSeconds = *cacheTTLFlag
+	}
+
 	targetURL := os.Getenv("GITHUB_API_URL")
-	if targetURL == "" {
+	if *targetURLFlag != "" {
+		targetURL = *targetURLFlag
+	} else if targetURL == "" {
 		targetURL = "https://api.github.com"
 	}
 
@@ -76,4 +113,19 @@ func main() {
 
 	<-serverCtx.Done()
 	slog.Info("github-api-relay stopped cleanly")
+}
+
+func splitCSV(val string) []string {
+	if val == "" {
+		return nil
+	}
+	parts := strings.Split(val, ",")
+	var result []string
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }

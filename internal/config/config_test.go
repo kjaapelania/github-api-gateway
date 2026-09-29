@@ -88,3 +88,29 @@ func TestLoadCustomEnvironment(t *testing.T) {
 		t.Errorf("expected CacheTTLSeconds=60, got: %d", cfg.CacheTTLSeconds)
 	}
 }
+
+func TestLoadDotEnv_PreservesExistingEnv(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", ".env-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	_, _ = tmpFile.WriteString("GITHUB_TOKENS=ghp_from_dotenv\nPORT=9999\n")
+	_ = tmpFile.Close()
+
+	t.Setenv("PORT", "7777")
+	_ = os.Unsetenv("GITHUB_TOKENS")
+
+	cfg, err := config.LoadFile(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Port != "7777" {
+		t.Errorf("expected PORT to be overridden by environment (7777), got: %s", cfg.Port)
+	}
+	if len(cfg.GitHubTokens) != 1 || cfg.GitHubTokens[0] != "ghp_from_dotenv" {
+		t.Errorf("expected GITHUB_TOKENS to be loaded from dotenv file, got: %v", cfg.GitHubTokens)
+	}
+}
