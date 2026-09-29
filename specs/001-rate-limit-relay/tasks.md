@@ -78,8 +78,8 @@
 
 ## Phase 7: Status & Telemetry Endpoint
 
-- [ ] **T014 [Telemetry]**: [TDD] Write tests in `internal/telemetry/status_test.go` verifying `GET /_relay/status` returns JSON with uptime, token pool status (each token's masked ID, remaining quota, reset time), active relay key count, and cache count.
-- [ ] **T015 [Telemetry]**: Implement `internal/telemetry/status.go` to make `status_test.go` pass (Green).
+- [x] **T014 [Telemetry]**: [TDD] Write tests in `internal/telemetry/status_test.go` verifying `GET /_relay/status` returns JSON with uptime, token pool status (each token's masked ID, remaining quota, reset time), active relay key count, and cache count.
+- [x] **T015 [Telemetry]**: Implement `internal/telemetry/status.go` to make `status_test.go` pass (Green).
 
 ---
 

@@ -9,6 +9,14 @@ type Policy struct {
 	rules []Rule
 }
 
+// RuleCount returns the number of active rules.
+func (p *Policy) RuleCount() int {
+	if p == nil {
+		return 0
+	}
+	return len(p.rules)
+}
+
 // Evaluate evaluates an incoming HTTP request against the policy and returns whether it is allowed.
 func (p *Policy) Evaluate(method, urlPath string) (bool, DenialReason) {
 	upperMethod := strings.ToUpper(strings.TrimSpace(method))
