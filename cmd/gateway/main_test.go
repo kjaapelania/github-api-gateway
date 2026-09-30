@@ -360,3 +360,100 @@ internal_rules:
 	}
 	res1Repeat.Body.Close()
 }
+
+func TestEndToEnd_ClientRateLimiting(t *testing.T) {
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"upstream":"success"}`))
+	}))
+	defer mockUpstream.Close()
+
+	policyPath, err := filepath.Abs("../../policy.yaml")
+	if err != nil {
+		t.Fatalf("failed to get policy path: %v", err)
+	}
+
+	cfg := &config.Config{
+		Port:                    "8080",
+		GitHubTokens:            []string{"ghp_dummytoken"},
+		AuthKeys:                []string{"client-flood", "client-safe"},
+		PolicyPath:              policyPath,
+		TokenMinRemaining:       3000,
+		FallbackUnauthenticated: true,
+		CacheTTLSeconds:         300,
+		TargetURL:               mockUpstream.URL,
+		ClientMaxRPM:            60,
+		ClientBurst:             2, // Burst capacity of 2 requests
+	}
+
+	app, err := NewApp(cfg, mockUpstream.URL)
+	if err != nil {
+		t.Fatalf("failed to create app: %v", err)
+	}
+
+	server := httptest.NewServer(app.Handler)
+	defer server.Close()
+	client := server.Client()
+
+	// 1. client-flood sends 1st request -> 200 OK
+	req1, _ := http.NewRequest("GET", server.URL+"/repos/my-company/frontend/releases/latest", nil)
+	req1.Header.Set("Authorization", "Bearer client-flood")
+	res1, err := client.Do(req1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res1.Body.Close()
+	if res1.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK on 1st request, got %d", res1.StatusCode)
+	}
+
+	// 2. client-flood sends 2nd request -> 200 OK (burst allowed)
+	req2, _ := http.NewRequest("GET", server.URL+"/repos/my-company/frontend/releases/latest", nil)
+	req2.Header.Set("Authorization", "Bearer client-flood")
+	res2, err := client.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res2.Body.Close()
+	if res2.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK on 2nd request, got %d", res2.StatusCode)
+	}
+
+	// 3. client-flood sends 3rd rapid request -> 429 Too Many Requests
+	req3, _ := http.NewRequest("GET", server.URL+"/repos/my-company/frontend/releases/latest", nil)
+	req3.Header.Set("Authorization", "Bearer client-flood")
+	res3, err := client.Do(req3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res3.Body.Close()
+
+	if res3.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests on 3rd request, got %d", res3.StatusCode)
+	}
+	if res3.Header.Get("Retry-After") == "" {
+		t.Error("expected Retry-After header on 429 response")
+	}
+
+	var errPayload map[string]any
+	if err := json.NewDecoder(res3.Body).Decode(&errPayload); err != nil {
+		t.Fatalf("failed to decode 429 JSON response: %v", err)
+	}
+	if errPayload["error"] != "client_rate_limited" {
+		t.Errorf("expected error=client_rate_limited, got: %v", errPayload["error"])
+	}
+
+	// 4. client-safe (with different key) must NOT be blocked (independent token bucket)
+	reqSafe, _ := http.NewRequest("GET", server.URL+"/repos/my-company/frontend/releases/latest", nil)
+	reqSafe.Header.Set("X-Gateway-Key", "client-safe")
+	resSafe, err := client.Do(reqSafe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resSafe.Body.Close()
+	if resSafe.StatusCode != http.StatusOK {
+		t.Errorf("expected independent client-safe to receive 200 OK, got %d", resSafe.StatusCode)
+	}
+}
+

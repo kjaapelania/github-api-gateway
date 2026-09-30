@@ -12,6 +12,7 @@ import (
 	"github-api-gateway/internal/config"
 	"github-api-gateway/internal/policy"
 	"github-api-gateway/internal/proxy"
+	"github-api-gateway/internal/ratelimit"
 	"github-api-gateway/internal/telemetry"
 	"github-api-gateway/internal/token"
 )
@@ -23,6 +24,7 @@ type App struct {
 	Pool       *token.Pool
 	Cache      *cache.Cache
 	AuthMgr    *auth.Manager
+	Limiter    *ratelimit.Limiter
 	Proxy      *proxy.Handler
 	Handler    http.Handler
 	StartTime  time.Time
@@ -59,14 +61,17 @@ func NewApp(cfg *config.Config, targetURL string) (*App, error) {
 	// 5. Pre-shared keys authentication manager
 	authMgr := auth.NewManager(cfg.AuthKeys)
 
-	// 6. Telemetry and health status handler
+	// 6. Per-client token-bucket rate limiter to prevent noisy-neighbor quota exhaustion
+	limiter := ratelimit.NewLimiter(cfg.ClientMaxRPM, cfg.ClientBurst)
+
+	// 7. Telemetry and health status handler
 	startTime := time.Now()
 	statusHandler := telemetry.NewStatusHandler(startTime, pool, c, len(cfg.AuthKeys), pol)
 
-	// 7. Route and middleware stack:
+	// 8. Route and middleware stack:
 	// Status & Reload endpoints are accessible for administration
-	// API requests pass through Auth -> Cache -> Proxy
-	apiHandler := authMgr.Middleware(c.Middleware(proxyHandler))
+	// API requests pass through Auth -> RateLimiter -> Cache -> Proxy
+	apiHandler := authMgr.Middleware(limiter.Middleware(c.Middleware(proxyHandler)))
 
 	mux := http.NewServeMux()
 	mux.Handle("/_gateway/status", statusHandler)
@@ -79,6 +84,7 @@ func NewApp(cfg *config.Config, targetURL string) (*App, error) {
 		Pool:       pool,
 		Cache:      c,
 		AuthMgr:    authMgr,
+		Limiter:    limiter,
 		Proxy:      proxyHandler,
 		Handler:    mux,
 		StartTime:  startTime,
@@ -145,6 +151,9 @@ func (a *App) Reload() (*ReloadResponse, error) {
 	a.Proxy.SetPolicy(newPolicy)
 	a.AuthMgr.SetKeys(newCfg.AuthKeys)
 	a.Pool.UpdateTokens(newCfg.GitHubTokens)
+	if a.Limiter != nil {
+		a.Limiter.UpdateLimits(newCfg.ClientMaxRPM, newCfg.ClientBurst)
+	}
 
 	return &ReloadResponse{
 		Status:        "reloaded",

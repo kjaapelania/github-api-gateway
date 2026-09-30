@@ -49,6 +49,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.TargetURL != "https://api.github.com" {
 		t.Errorf("expected TargetURL=https://api.github.com, got: %s", cfg.TargetURL)
 	}
+	if cfg.ClientMaxRPM != 60 {
+		t.Errorf("expected ClientMaxRPM=60, got: %d", cfg.ClientMaxRPM)
+	}
+	if cfg.ClientBurst != 10 {
+		t.Errorf("expected ClientBurst=10, got: %d", cfg.ClientBurst)
+	}
 }
 
 func TestLoadCustomEnvironment(t *testing.T) {
@@ -60,6 +66,8 @@ func TestLoadCustomEnvironment(t *testing.T) {
 	t.Setenv("GITHUB_API_GATEWAY_FALLBACK_UNAUTHENTICATED", "false")
 	t.Setenv("GITHUB_API_GATEWAY_CACHE_TTL_SECONDS", "60")
 	t.Setenv("GITHUB_API_GATEWAY_TARGET_URL", "https://github-enterprise.internal/api/v3")
+	t.Setenv("GITHUB_API_GATEWAY_CLIENT_MAX_RPM", "120")
+	t.Setenv("GITHUB_API_GATEWAY_CLIENT_BURST", "20")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -94,6 +102,12 @@ func TestLoadCustomEnvironment(t *testing.T) {
 	}
 	if cfg.TargetURL != "https://github-enterprise.internal/api/v3" {
 		t.Errorf("expected TargetURL=https://github-enterprise.internal/api/v3, got: %s", cfg.TargetURL)
+	}
+	if cfg.ClientMaxRPM != 120 {
+		t.Errorf("expected ClientMaxRPM=120, got: %d", cfg.ClientMaxRPM)
+	}
+	if cfg.ClientBurst != 20 {
+		t.Errorf("expected ClientBurst=20, got: %d", cfg.ClientBurst)
 	}
 }
 

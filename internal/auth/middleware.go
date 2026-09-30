@@ -74,7 +74,10 @@ func NewMiddleware(keys []string) Middleware {
 }
 
 func extractKey(r *http.Request) string {
-	// 1. Check X-Relay-Key header
+	// 1. Check X-Gateway-Key or X-Relay-Key header
+	if key := r.Header.Get("X-Gateway-Key"); key != "" {
+		return strings.TrimSpace(key)
+	}
 	if key := r.Header.Get("X-Relay-Key"); key != "" {
 		return strings.TrimSpace(key)
 	}

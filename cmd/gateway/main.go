@@ -26,6 +26,8 @@ func main() {
 	fallbackFlag := flag.String("fallback", "", "Fallback to unauthenticated (true/false, overrides GITHUB_API_GATEWAY_FALLBACK_UNAUTHENTICATED)")
 	cacheTTLFlag := flag.Int("cache-ttl", -1, "Cache TTL seconds (overrides GITHUB_API_GATEWAY_CACHE_TTL_SECONDS)")
 	targetURLFlag := flag.String("target-url", "", "Upstream GitHub API URL (overrides GITHUB_API_GATEWAY_TARGET_URL)")
+	clientMaxRPMFlag := flag.Int("client-max-rpm", -1, "Per-client maximum requests per minute (overrides GITHUB_API_GATEWAY_CLIENT_MAX_RPM)")
+	clientBurstFlag := flag.Int("client-burst", -1, "Per-client token bucket burst capacity (overrides GITHUB_API_GATEWAY_CLIENT_BURST)")
 	flag.Parse()
 
 	slog.Info("starting github-api-gateway")
@@ -60,6 +62,12 @@ func main() {
 	}
 	if *targetURLFlag != "" {
 		cfg.TargetURL = *targetURLFlag
+	}
+	if *clientMaxRPMFlag >= 0 {
+		cfg.ClientMaxRPM = *clientMaxRPMFlag
+	}
+	if *clientBurstFlag >= 0 {
+		cfg.ClientBurst = *clientBurstFlag
 	}
 
 	targetURL := cfg.TargetURL

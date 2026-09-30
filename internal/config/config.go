@@ -16,6 +16,8 @@ type Config struct {
 	FallbackUnauthenticated bool
 	CacheTTLSeconds         int
 	TargetURL               string
+	ClientMaxRPM            int
+	ClientBurst             int
 }
 
 // Load parses environment variables, optionally reading from .env if present.
@@ -38,6 +40,8 @@ func LoadFile(envPath string) (*Config, error) {
 		FallbackUnauthenticated: getEnvBool("GITHUB_API_GATEWAY_FALLBACK_UNAUTHENTICATED", true),
 		CacheTTLSeconds:         getEnvInt("GITHUB_API_GATEWAY_CACHE_TTL_SECONDS", 300),
 		TargetURL:               getEnv("GITHUB_API_GATEWAY_TARGET_URL", "https://api.github.com"),
+		ClientMaxRPM:            getEnvInt("GITHUB_API_GATEWAY_CLIENT_MAX_RPM", 60),
+		ClientBurst:             getEnvInt("GITHUB_API_GATEWAY_CLIENT_BURST", 10),
 	}
 
 	return cfg, nil
