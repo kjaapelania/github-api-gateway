@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github-api-relay/internal/token"
+	"github-api-gateway/internal/token"
 )
 
 func TestTokenPool_LargestRemainingSelection(t *testing.T) {

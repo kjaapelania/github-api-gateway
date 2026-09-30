@@ -3,7 +3,7 @@ package policy_test
 import (
 	"testing"
 
-	"github-api-relay/internal/policy"
+	"github-api-gateway/internal/policy"
 )
 
 func TestPolicyValidationErrors(t *testing.T) {

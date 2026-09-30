@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github-api-relay/internal/auth"
+	"github-api-gateway/internal/auth"
 )
 
 func TestAuthMiddleware_OpenMode(t *testing.T) {

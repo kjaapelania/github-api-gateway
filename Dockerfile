@@ -1,4 +1,4 @@
-# Multi-stage Docker build for github-api-relay
+# Multi-stage Docker build for github-api-gateway
 
 # Build Stage
 FROM golang:1.23-alpine AS builder
@@ -12,7 +12,7 @@ RUN go mod download 2>/dev/null || true
 
 # Copy source code and build statically linked binary
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /app/bin/relay ./cmd/relay
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /app/bin/gateway ./cmd/gateway
 
 # Production Minimal Runtime Stage (< 20MB, Non-root)
 FROM alpine:3.20
@@ -22,12 +22,12 @@ RUN apk --no-cache add ca-certificates tzdata
 WORKDIR /app
 
 # Run as non-privileged system user for enterprise container security
-RUN addgroup -S relay && adduser -S relay -G relay
+RUN addgroup -S gateway && adduser -S gateway -G gateway
 
-COPY --from=builder --chown=relay:relay /app/bin/relay /app/relay
+COPY --from=builder --chown=gateway:gateway /app/bin/gateway /app/gateway
 
-USER relay
+USER gateway
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/relay"]
+ENTRYPOINT ["/app/gateway"]

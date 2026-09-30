@@ -6,15 +6,16 @@ import (
 	"strings"
 )
 
-// Config holds runtime configuration options for the GitHub API relay.
+// Config holds runtime configuration options for the GitHub API Gateway.
 type Config struct {
 	Port                    string
 	GitHubTokens            []string
-	RelayAuthKeys           []string
+	AuthKeys                []string
 	PolicyPath              string
 	TokenMinRemaining       int
 	FallbackUnauthenticated bool
 	CacheTTLSeconds         int
+	TargetURL               string
 }
 
 // Load parses environment variables, optionally reading from .env if present.
@@ -23,18 +24,20 @@ func Load() (*Config, error) {
 }
 
 // LoadFile loads environment variables from a specific dotenv file if it exists,
-// then parses configuration with defaults and environment overrides.
+// then parses configuration with defaults and environment overrides using the
+// conflict-free GITHUB_API_GATEWAY_ prefix.
 func LoadFile(envPath string) (*Config, error) {
 	loadDotEnv(envPath)
 
 	cfg := &Config{
-		Port:                    getEnv("PORT", "8080"),
-		GitHubTokens:            splitList(os.Getenv("GITHUB_TOKENS")),
-		RelayAuthKeys:           splitList(os.Getenv("RELAY_AUTH_KEYS")),
-		PolicyPath:              getEnv("POLICY_PATH", "policy.yaml"),
-		TokenMinRemaining:       getEnvInt("TOKEN_MIN_REMAINING", 3000),
-		FallbackUnauthenticated: getEnvBool("FALLBACK_UNAUTHENTICATED", true),
-		CacheTTLSeconds:         getEnvInt("CACHE_TTL_SECONDS", 300),
+		Port:                    getEnv("GITHUB_API_GATEWAY_PORT", "8080"),
+		GitHubTokens:            splitList(os.Getenv("GITHUB_API_GATEWAY_TOKENS")),
+		AuthKeys:                splitList(os.Getenv("GITHUB_API_GATEWAY_AUTH_KEYS")),
+		PolicyPath:              getEnv("GITHUB_API_GATEWAY_POLICY_PATH", "policy.yaml"),
+		TokenMinRemaining:       getEnvInt("GITHUB_API_GATEWAY_TOKEN_MIN_REMAINING", 3000),
+		FallbackUnauthenticated: getEnvBool("GITHUB_API_GATEWAY_FALLBACK_UNAUTHENTICATED", true),
+		CacheTTLSeconds:         getEnvInt("GITHUB_API_GATEWAY_CACHE_TTL_SECONDS", 300),
+		TargetURL:               getEnv("GITHUB_API_GATEWAY_TARGET_URL", "https://api.github.com"),
 	}
 
 	return cfg, nil

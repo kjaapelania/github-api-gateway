@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github-api-relay/internal/cache"
+	"github-api-gateway/internal/cache"
 )
 
 func TestMemoryCache_GetMissAndCacheOn200(t *testing.T) {

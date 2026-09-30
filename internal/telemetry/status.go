@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github-api-relay/internal/cache"
-	"github-api-relay/internal/policy"
-	"github-api-relay/internal/token"
+	"github-api-gateway/internal/cache"
+	"github-api-gateway/internal/policy"
+	"github-api-gateway/internal/token"
 )
 
 // StatusResponse is the JSON payload returned by /_relay/status.

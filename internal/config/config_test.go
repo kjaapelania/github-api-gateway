@@ -5,15 +5,16 @@ import (
 	"reflect"
 	"testing"
 
-	"github-api-relay/internal/config"
+	"github-api-gateway/internal/config"
 )
 
 func TestLoadDefaults(t *testing.T) {
 	// Clear all relevant environment variables
 	envVars := []string{
-		"PORT", "GITHUB_TOKENS", "RELAY_AUTH_KEYS",
-		"POLICY_PATH", "TOKEN_MIN_REMAINING",
-		"FALLBACK_UNAUTHENTICATED", "CACHE_TTL_SECONDS",
+		"GITHUB_API_GATEWAY_PORT", "GITHUB_API_GATEWAY_TOKENS", "GITHUB_API_GATEWAY_AUTH_KEYS",
+		"GITHUB_API_GATEWAY_POLICY_PATH", "GITHUB_API_GATEWAY_TOKEN_MIN_REMAINING",
+		"GITHUB_API_GATEWAY_FALLBACK_UNAUTHENTICATED", "GITHUB_API_GATEWAY_CACHE_TTL_SECONDS",
+		"GITHUB_API_GATEWAY_TARGET_URL",
 	}
 	for _, env := range envVars {
 		_ = os.Unsetenv(env)
@@ -30,8 +31,8 @@ func TestLoadDefaults(t *testing.T) {
 	if len(cfg.GitHubTokens) != 0 {
 		t.Errorf("expected empty GitHubTokens, got: %v", cfg.GitHubTokens)
 	}
-	if len(cfg.RelayAuthKeys) != 0 {
-		t.Errorf("expected empty RelayAuthKeys, got: %v", cfg.RelayAuthKeys)
+	if len(cfg.AuthKeys) != 0 {
+		t.Errorf("expected empty AuthKeys, got: %v", cfg.AuthKeys)
 	}
 	if cfg.PolicyPath != "policy.yaml" {
 		t.Errorf("expected PolicyPath=policy.yaml, got: %s", cfg.PolicyPath)
@@ -45,16 +46,20 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.CacheTTLSeconds != 300 {
 		t.Errorf("expected CacheTTLSeconds=300, got: %d", cfg.CacheTTLSeconds)
 	}
+	if cfg.TargetURL != "https://api.github.com" {
+		t.Errorf("expected TargetURL=https://api.github.com, got: %s", cfg.TargetURL)
+	}
 }
 
 func TestLoadCustomEnvironment(t *testing.T) {
-	t.Setenv("PORT", "9090")
-	t.Setenv("GITHUB_TOKENS", "ghp_token1, ghp_token2 , github_pat_token3")
-	t.Setenv("RELAY_AUTH_KEYS", "key1, key2 ")
-	t.Setenv("POLICY_PATH", "custom-policy.yaml")
-	t.Setenv("TOKEN_MIN_REMAINING", "500")
-	t.Setenv("FALLBACK_UNAUTHENTICATED", "false")
-	t.Setenv("CACHE_TTL_SECONDS", "60")
+	t.Setenv("GITHUB_API_GATEWAY_PORT", "9090")
+	t.Setenv("GITHUB_API_GATEWAY_TOKENS", "ghp_token1, ghp_token2 , github_pat_token3")
+	t.Setenv("GITHUB_API_GATEWAY_AUTH_KEYS", "key1, key2 ")
+	t.Setenv("GITHUB_API_GATEWAY_POLICY_PATH", "custom-policy.yaml")
+	t.Setenv("GITHUB_API_GATEWAY_TOKEN_MIN_REMAINING", "500")
+	t.Setenv("GITHUB_API_GATEWAY_FALLBACK_UNAUTHENTICATED", "false")
+	t.Setenv("GITHUB_API_GATEWAY_CACHE_TTL_SECONDS", "60")
+	t.Setenv("GITHUB_API_GATEWAY_TARGET_URL", "https://github-enterprise.internal/api/v3")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -71,8 +76,8 @@ func TestLoadCustomEnvironment(t *testing.T) {
 	}
 
 	expectedKeys := []string{"key1", "key2"}
-	if !reflect.DeepEqual(cfg.RelayAuthKeys, expectedKeys) {
-		t.Errorf("expected RelayAuthKeys=%v, got: %v", expectedKeys, cfg.RelayAuthKeys)
+	if !reflect.DeepEqual(cfg.AuthKeys, expectedKeys) {
+		t.Errorf("expected AuthKeys=%v, got: %v", expectedKeys, cfg.AuthKeys)
 	}
 
 	if cfg.PolicyPath != "custom-policy.yaml" {
@@ -87,6 +92,9 @@ func TestLoadCustomEnvironment(t *testing.T) {
 	if cfg.CacheTTLSeconds != 60 {
 		t.Errorf("expected CacheTTLSeconds=60, got: %d", cfg.CacheTTLSeconds)
 	}
+	if cfg.TargetURL != "https://github-enterprise.internal/api/v3" {
+		t.Errorf("expected TargetURL=https://github-enterprise.internal/api/v3, got: %s", cfg.TargetURL)
+	}
 }
 
 func TestLoadDotEnv_PreservesExistingEnv(t *testing.T) {
@@ -96,11 +104,11 @@ func TestLoadDotEnv_PreservesExistingEnv(t *testing.T) {
 	}
 	defer os.Remove(tmpFile.Name())
 
-	_, _ = tmpFile.WriteString("GITHUB_TOKENS=ghp_from_dotenv\nPORT=9999\n")
+	_, _ = tmpFile.WriteString("GITHUB_API_GATEWAY_TOKENS=ghp_from_dotenv\nGITHUB_API_GATEWAY_PORT=9999\n")
 	_ = tmpFile.Close()
 
-	t.Setenv("PORT", "7777")
-	_ = os.Unsetenv("GITHUB_TOKENS")
+	t.Setenv("GITHUB_API_GATEWAY_PORT", "7777")
+	_ = os.Unsetenv("GITHUB_API_GATEWAY_TOKENS")
 
 	cfg, err := config.LoadFile(tmpFile.Name())
 	if err != nil {
@@ -111,6 +119,6 @@ func TestLoadDotEnv_PreservesExistingEnv(t *testing.T) {
 		t.Errorf("expected PORT to be overridden by environment (7777), got: %s", cfg.Port)
 	}
 	if len(cfg.GitHubTokens) != 1 || cfg.GitHubTokens[0] != "ghp_from_dotenv" {
-		t.Errorf("expected GITHUB_TOKENS to be loaded from dotenv file, got: %v", cfg.GitHubTokens)
+		t.Errorf("expected GITHUB_API_GATEWAY_TOKENS to be loaded from dotenv file, got: %v", cfg.GitHubTokens)
 	}
 }

@@ -1,4 +1,4 @@
-module github-api-relay
+module github-api-gateway
 
 go 1.25.8
 

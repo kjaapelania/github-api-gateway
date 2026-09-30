@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github-api-relay/internal/policy"
-	"github-api-relay/internal/token"
+	"github-api-gateway/internal/policy"
+	"github-api-gateway/internal/token"
 )
 
 // Handler proxies authorized HTTP requests to upstream GitHub while injecting tokens and recording usage.

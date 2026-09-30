@@ -1,28 +1,29 @@
 services:
-  relay:
+  gateway:
     build:
       context: .
       dockerfile: Dockerfile
-    image: github-api-relay:latest
-    container_name: github-api-relay
+    image: github-api-gateway:latest
+    container_name: github-api-gateway
     restart: unless-stopped
     ports:
-      - "${PORT:-8080}:8080"
+      - "${GITHUB_API_GATEWAY_PORT:-8080}:8080"
     env_file:
       - path: .env
         required: false
     environment:
-      - PORT=8080
-      - POLICY_PATH=/app/policy.yaml
-      - GITHUB_TOKENS=${GITHUB_TOKENS:-}
-      - RELAY_AUTH_KEYS=${RELAY_AUTH_KEYS:-}
-      - TOKEN_MIN_REMAINING=${TOKEN_MIN_REMAINING:-3000}
-      - FALLBACK_UNAUTHENTICATED=${FALLBACK_UNAUTHENTICATED:-true}
-      - CACHE_TTL_SECONDS=${CACHE_TTL_SECONDS:-300}
+      - GITHUB_API_GATEWAY_PORT=8080
+      - GITHUB_API_GATEWAY_POLICY_PATH=/app/policy.yaml
+      - GITHUB_API_GATEWAY_TOKENS=${GITHUB_API_GATEWAY_TOKENS:-}
+      - GITHUB_API_GATEWAY_AUTH_KEYS=${GITHUB_API_GATEWAY_AUTH_KEYS:-}
+      - GITHUB_API_GATEWAY_TOKEN_MIN_REMAINING=${GITHUB_API_GATEWAY_TOKEN_MIN_REMAINING:-3000}
+      - GITHUB_API_GATEWAY_FALLBACK_UNAUTHENTICATED=${GITHUB_API_GATEWAY_FALLBACK_UNAUTHENTICATED:-true}
+      - GITHUB_API_GATEWAY_CACHE_TTL_SECONDS=${GITHUB_API_GATEWAY_CACHE_TTL_SECONDS:-300}
+      - GITHUB_API_GATEWAY_TARGET_URL=${GITHUB_API_GATEWAY_TARGET_URL:-https://api.github.com}
     volumes:
       - ./policy.yaml:/app/policy.yaml:ro
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/_relay/status"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/_gateway/status"]
       interval: 30s
       timeout: 5s
       retries: 3

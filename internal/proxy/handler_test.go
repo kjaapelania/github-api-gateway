@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github-api-relay/internal/policy"
-	"github-api-relay/internal/proxy"
-	"github-api-relay/internal/token"
+	"github-api-gateway/internal/policy"
+	"github-api-gateway/internal/proxy"
+	"github-api-gateway/internal/token"
 )
 
 func TestProxyHandler_PolicyBlocking(t *testing.T) {

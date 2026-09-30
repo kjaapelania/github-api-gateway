@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github-api-relay/internal/config"
-	"github-api-relay/internal/token"
+	"github-api-gateway/internal/config"
+	"github-api-gateway/internal/token"
 )
 
 func TestEndToEnd_Integration(t *testing.T) {
@@ -58,16 +58,17 @@ func TestEndToEnd_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get policy path: %v", err)
 	}
-	t.Setenv("POLICY_PATH", policyPath)
+	t.Setenv("GITHUB_API_GATEWAY_POLICY_PATH", policyPath)
 
 	cfg := &config.Config{
 		Port:                    "8080",
 		GitHubTokens:            []string{"ghp_testToken1234567890"},
-		RelayAuthKeys:           []string{"key-ci", "key-team-a"},
+		AuthKeys:                []string{"key-ci", "key-team-a"},
 		PolicyPath:              policyPath,
 		TokenMinRemaining:       3000,
 		FallbackUnauthenticated: true,
 		CacheTTLSeconds:         300,
+		TargetURL:               mockGitHub.URL,
 	}
 
 	app, err := NewApp(cfg, mockGitHub.URL)
@@ -75,16 +76,16 @@ func TestEndToEnd_Integration(t *testing.T) {
 		t.Fatalf("NewApp failed: %v", err)
 	}
 
-	relayServer := httptest.NewServer(app.Handler)
-	defer relayServer.Close()
+	gatewayServer := httptest.NewServer(app.Handler)
+	defer gatewayServer.Close()
 
-	client := relayServer.Client()
+	client := gatewayServer.Client()
 
 	// -------------------------------------------------------------------------
-	// Scenario 1: Telemetry endpoint GET /_relay/status
+	// Scenario 1: Telemetry endpoint GET /_gateway/status
 	// -------------------------------------------------------------------------
 	t.Run("Telemetry Status Endpoint", func(t *testing.T) {
-		res, err := client.Get(relayServer.URL + "/_relay/status")
+		res, err := client.Get(gatewayServer.URL + "/_gateway/status")
 		if err != nil {
 			t.Fatalf("status request failed: %v", err)
 		}
@@ -117,11 +118,11 @@ func TestEndToEnd_Integration(t *testing.T) {
 	})
 
 	// -------------------------------------------------------------------------
-	// Scenario 2: Relay Key Authentication (User Story 3)
+	// Scenario 2: Gateway Key Authentication (User Story 3)
 	// -------------------------------------------------------------------------
-	t.Run("Relay Key Authentication", func(t *testing.T) {
+	t.Run("Gateway Key Authentication", func(t *testing.T) {
 		// Missing key -> 401 Unauthorized
-		req, _ := http.NewRequest("GET", relayServer.URL+"/repos/my-company/frontend/releases/latest", nil)
+		req, _ := http.NewRequest("GET", gatewayServer.URL+"/repos/my-company/frontend/releases/latest", nil)
 		res, err := client.Do(req)
 		if err != nil {
 			t.Fatalf("req failed: %v", err)
@@ -132,7 +133,7 @@ func TestEndToEnd_Integration(t *testing.T) {
 		}
 
 		// Wrong key -> 401 Unauthorized
-		req, _ = http.NewRequest("GET", relayServer.URL+"/repos/my-company/frontend/releases/latest", nil)
+		req, _ = http.NewRequest("GET", gatewayServer.URL+"/repos/my-company/frontend/releases/latest", nil)
 		req.Header.Set("Authorization", "Bearer invalid-secret")
 		res, err = client.Do(req)
 		if err != nil {
@@ -148,8 +149,8 @@ func TestEndToEnd_Integration(t *testing.T) {
 	// Scenario 3: Fail-Closed Enterprise Policy & Hardcoded Denylist (User Story 2)
 	// -------------------------------------------------------------------------
 	t.Run("Policy Hardcoded Denylist and Default Deny", func(t *testing.T) {
-		// Hardcoded denylist: /user must return 403 Forbidden even with valid relay key
-		req, _ := http.NewRequest("GET", relayServer.URL+"/user", nil)
+		// Hardcoded denylist: /user must return 403 Forbidden even with valid gateway key
+		req, _ := http.NewRequest("GET", gatewayServer.URL+"/user", nil)
 		req.Header.Set("Authorization", "Bearer key-ci")
 		res, err := client.Do(req)
 		if err != nil {
@@ -161,7 +162,7 @@ func TestEndToEnd_Integration(t *testing.T) {
 		}
 
 		// Default deny: unauthorized repo /repos/unauthorized-org/repo
-		req, _ = http.NewRequest("GET", relayServer.URL+"/repos/unauthorized-org/secret/releases", nil)
+		req, _ = http.NewRequest("GET", gatewayServer.URL+"/repos/unauthorized-org/secret/releases", nil)
 		req.Header.Set("Authorization", "Bearer key-team-a")
 		res, err = client.Do(req)
 		if err != nil {
@@ -178,7 +179,7 @@ func TestEndToEnd_Integration(t *testing.T) {
 	// -------------------------------------------------------------------------
 	t.Run("Token Injection and ETag Zero Quota Caching", func(t *testing.T) {
 		// Call 1: Miss & Cache
-		req1, _ := http.NewRequest("GET", relayServer.URL+"/repos/my-company/frontend/releases/latest", nil)
+		req1, _ := http.NewRequest("GET", gatewayServer.URL+"/repos/my-company/frontend/releases/latest", nil)
 		req1.Header.Set("Authorization", "Bearer key-ci")
 		res1, err := client.Do(req1)
 		if err != nil {
@@ -197,8 +198,8 @@ func TestEndToEnd_Integration(t *testing.T) {
 			t.Errorf("expected upstream to receive injected token, got: %s", capturedAuthToken)
 		}
 
-		// Call 2: Revalidate -> upstream returns 304, relay serves 200 OK with cached body
-		req2, _ := http.NewRequest("GET", relayServer.URL+"/repos/my-company/frontend/releases/latest", nil)
+		// Call 2: Revalidate -> upstream returns 304, gateway serves 200 OK with cached body
+		req2, _ := http.NewRequest("GET", gatewayServer.URL+"/repos/my-company/frontend/releases/latest", nil)
 		req2.Header.Set("X-Relay-Key", "key-team-a") // verify alternative header works
 		res2, err := client.Do(req2)
 		if err != nil {
@@ -208,7 +209,7 @@ func TestEndToEnd_Integration(t *testing.T) {
 		res2.Body.Close()
 
 		if res2.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200 OK from relay on 304 revalidation, got %d", res2.StatusCode)
+			t.Fatalf("expected 200 OK from gateway on 304 revalidation, got %d", res2.StatusCode)
 		}
 		if string(body2) != `{"tag_name": "v1.2.3"}` {
 			t.Errorf("expected cached body2, got: %s", string(body2))
@@ -219,14 +220,13 @@ func TestEndToEnd_Integration(t *testing.T) {
 	// Scenario 5: S3 Binary Redirect Preservation (User Story 6)
 	// -------------------------------------------------------------------------
 	t.Run("S3 Binary Redirect Preservation", func(t *testing.T) {
-		// Disable following redirects in client to assert the 302 response directly
 		noRedirectClient := &http.Client{
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
 		}
 
-		req, _ := http.NewRequest("GET", relayServer.URL+"/repos/my-company/frontend/releases/download/v1.0.0/asset.tar.gz", nil)
+		req, _ := http.NewRequest("GET", gatewayServer.URL+"/repos/my-company/frontend/releases/download/v1.0.0/asset.tar.gz", nil)
 		req.Header.Set("Authorization", "Bearer key-ci")
 		res, err := noRedirectClient.Do(req)
 		if err != nil {
@@ -244,21 +244,21 @@ func TestEndToEnd_Integration(t *testing.T) {
 	})
 
 	// -------------------------------------------------------------------------
-	// Scenario 6: Zero-Restart Hot-Reloading (POST /_relay/reload)
+	// Scenario 6: Zero-Restart Hot-Reloading (POST /_gateway/reload)
 	// -------------------------------------------------------------------------
 	t.Run("Zero Restart Hot Reloading", func(t *testing.T) {
-		// 1. GET /_relay/reload should return 405 Method Not Allowed
-		res, err := client.Get(relayServer.URL + "/_relay/reload")
+		// 1. GET /_gateway/reload should return 405 Method Not Allowed
+		res, err := client.Get(gatewayServer.URL + "/_gateway/reload")
 		if err != nil {
 			t.Fatalf("req failed: %v", err)
 		}
 		res.Body.Close()
 		if res.StatusCode != http.StatusMethodNotAllowed {
-			t.Errorf("expected 405 Method Not Allowed for GET /_relay/reload, got: %d", res.StatusCode)
+			t.Errorf("expected 405 Method Not Allowed for GET /_gateway/reload, got: %d", res.StatusCode)
 		}
 
-		// 2. POST /_relay/reload triggers atomic reload
-		res, err = client.Post(relayServer.URL+"/_relay/reload", "application/json", nil)
+		// 2. POST /_gateway/reload triggers atomic reload
+		res, err = client.Post(gatewayServer.URL+"/_gateway/reload", "application/json", nil)
 		if err != nil {
 			t.Fatalf("reload request failed: %v", err)
 		}
@@ -266,13 +266,13 @@ func TestEndToEnd_Integration(t *testing.T) {
 
 		if res.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(res.Body)
-			t.Fatalf("expected 200 OK for POST /_relay/reload, got %d, body: %s", res.StatusCode, string(body))
+			t.Fatalf("expected 200 OK for POST /_gateway/reload, got %d, body: %s", res.StatusCode, string(body))
 		}
 
 		var reloadResp struct {
-			Status          string `json:"status"`
-			ActiveRelayKeys int    `json:"active_relay_keys"`
-			PolicyRules     int    `json:"policy_rules"`
+			Status         string `json:"status"`
+			ActiveAuthKeys int    `json:"active_auth_keys"`
+			PolicyRules    int    `json:"policy_rules"`
 		}
 		if err := json.NewDecoder(res.Body).Decode(&reloadResp); err != nil {
 			t.Fatalf("failed to decode reload JSON: %v", err)
@@ -310,7 +310,7 @@ internal_rules:
 	cfg := &config.Config{
 		Port:                    "8080",
 		PolicyPath:              tmpPolicy.Name(),
-		RelayAuthKeys:           []string{"key-v1"},
+		AuthKeys:                []string{"key-v1"},
 		TokenMinRemaining:       3000,
 		FallbackUnauthenticated: true,
 		CacheTTLSeconds:         300,
@@ -338,7 +338,7 @@ internal_rules:
 	_ = os.WriteFile(tmpPolicy.Name(), []byte("invalid: yaml: syntax: [unclosed"), 0644)
 
 	// 3. Trigger reload -> must return 400 Bad Request with rollback message
-	reloadRes, err := client.Post(server.URL+"/_relay/reload", "application/json", nil)
+	reloadRes, err := client.Post(server.URL+"/_gateway/reload", "application/json", nil)
 	if err != nil {
 		t.Fatalf("reload post failed: %v", err)
 	}

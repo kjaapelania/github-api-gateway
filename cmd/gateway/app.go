@@ -7,16 +7,16 @@ import (
 	"sync"
 	"time"
 
-	"github-api-relay/internal/auth"
-	"github-api-relay/internal/cache"
-	"github-api-relay/internal/config"
-	"github-api-relay/internal/policy"
-	"github-api-relay/internal/proxy"
-	"github-api-relay/internal/telemetry"
-	"github-api-relay/internal/token"
+	"github-api-gateway/internal/auth"
+	"github-api-gateway/internal/cache"
+	"github-api-gateway/internal/config"
+	"github-api-gateway/internal/policy"
+	"github-api-gateway/internal/proxy"
+	"github-api-gateway/internal/telemetry"
+	"github-api-gateway/internal/token"
 )
 
-// App manages the lifecycle of the GitHub API Rate Limit Relay components.
+// App manages the lifecycle of the GitHub API Gateway components.
 type App struct {
 	Config     *config.Config
 	Policy     *policy.Policy
@@ -32,13 +32,13 @@ type App struct {
 
 // ReloadResponse represents the outcome of a successful hot-reload.
 type ReloadResponse struct {
-	Status          string `json:"status"`
-	ActiveRelayKeys int    `json:"active_relay_keys"`
-	PolicyRules     int    `json:"policy_rules"`
-	ActiveTokens    int    `json:"active_tokens"`
+	Status        string `json:"status"`
+	ActiveAuthKeys int   `json:"active_auth_keys"`
+	PolicyRules   int    `json:"policy_rules"`
+	ActiveTokens  int    `json:"active_tokens"`
 }
 
-// NewApp instantiates and wires together all relay modules into a cohesive HTTP handler.
+// NewApp instantiates and wires together all gateway modules into a cohesive HTTP handler.
 func NewApp(cfg *config.Config, targetURL string) (*App, error) {
 	// 1. Load fail-closed enterprise access policy
 	pol, err := policy.LoadFromFile(cfg.PolicyPath)
@@ -57,11 +57,11 @@ func NewApp(cfg *config.Config, targetURL string) (*App, error) {
 	proxyHandler := proxy.NewHandler(targetURL, pol, pool)
 
 	// 5. Pre-shared keys authentication manager
-	authMgr := auth.NewManager(cfg.RelayAuthKeys)
+	authMgr := auth.NewManager(cfg.AuthKeys)
 
 	// 6. Telemetry and health status handler
 	startTime := time.Now()
-	statusHandler := telemetry.NewStatusHandler(startTime, pool, c, len(cfg.RelayAuthKeys), pol)
+	statusHandler := telemetry.NewStatusHandler(startTime, pool, c, len(cfg.AuthKeys), pol)
 
 	// 7. Route and middleware stack:
 	// Status & Reload endpoints are accessible for administration
@@ -69,6 +69,7 @@ func NewApp(cfg *config.Config, targetURL string) (*App, error) {
 	apiHandler := authMgr.Middleware(c.Middleware(proxyHandler))
 
 	mux := http.NewServeMux()
+	mux.Handle("/_gateway/status", statusHandler)
 	mux.Handle("/_relay/status", statusHandler)
 	mux.Handle("/", apiHandler)
 
@@ -84,7 +85,7 @@ func NewApp(cfg *config.Config, targetURL string) (*App, error) {
 		TargetHost: targetURL,
 	}
 
-	mux.HandleFunc("/_relay/reload", func(w http.ResponseWriter, r *http.Request) {
+	reloadHandler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -108,12 +109,15 @@ func NewApp(cfg *config.Config, targetURL string) (*App, error) {
 
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(resp)
-	})
+	}
+
+	mux.HandleFunc("/_gateway/reload", reloadHandler)
+	mux.HandleFunc("/_relay/reload", reloadHandler)
 
 	return app, nil
 }
 
-// Reload atomically reloads configuration, policy, tokens, and relay keys in-memory.
+// Reload atomically reloads configuration, policy, tokens, and gateway keys in-memory.
 // If any error occurs (e.g. invalid YAML syntax), the previous valid state is preserved.
 func (a *App) Reload() (*ReloadResponse, error) {
 	a.mu.Lock()
@@ -139,13 +143,13 @@ func (a *App) Reload() (*ReloadResponse, error) {
 	a.Policy = newPolicy
 	a.Config = newCfg
 	a.Proxy.SetPolicy(newPolicy)
-	a.AuthMgr.SetKeys(newCfg.RelayAuthKeys)
+	a.AuthMgr.SetKeys(newCfg.AuthKeys)
 	a.Pool.UpdateTokens(newCfg.GitHubTokens)
 
 	return &ReloadResponse{
-		Status:          "reloaded",
-		ActiveRelayKeys: a.AuthMgr.KeyCount(),
-		PolicyRules:     newPolicy.RuleCount(),
-		ActiveTokens:    len(newCfg.GitHubTokens),
+		Status:        "reloaded",
+		ActiveAuthKeys: a.AuthMgr.KeyCount(),
+		PolicyRules:   newPolicy.RuleCount(),
+		ActiveTokens:  len(newCfg.GitHubTokens),
 	}, nil
 }
