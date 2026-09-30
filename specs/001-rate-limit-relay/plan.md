@@ -35,13 +35,15 @@ Build an enterprise-grade Go reverse proxy service that provides rate-limit reli
 
 ```text
 cmd/
-└── relay/
-    └── main.go             # Entry point, flag/env loading, graceful shutdown
+└── gateway/
+    ├── app.go              # App lifecycle, component wiring, in-memory zero-restart hot-reload
+    ├── main.go             # Entry point, CLI flags, SIGHUP / graceful shutdown handlers
+    └── main_test.go        # Comprehensive E2E integration tests (auth, policy, cache, reload, ratelimit)
 
 internal/
 ├── config/
-│   ├── config.go           # Configuration parser (GITHUB_TOKENS, RELAY_AUTH_KEYS, POLICY_PATH, default min remaining = 3000)
-│   └── config_test.go      # TDD tests for config defaults and multi-key parsing
+│   ├── config.go           # Canonical GITHUB_API_GATEWAY_* config parser and dotenv loader
+│   └── config_test.go      # TDD tests for config defaults and environment overrides
 ├── policy/
 │   ├── model.go            # Rule structs with StringOrSlice YAML unmarshaler
 │   ├── evaluator.go        # Fail-closed policy evaluator (denylist, glob, regex, method match)
@@ -51,8 +53,11 @@ internal/
 │   ├── pool.go             # Thread-safe Largest-Remaining TokenPool with 10s cooldown & unauthenticated fallback
 │   └── pool_test.go        # TDD tests for largest-remaining selection, 10s cooldown, thresholds, and fallback behavior
 ├── auth/
-│   ├── middleware.go       # Multi-key relay protection (RELAY_AUTH_KEYS set validation)
+│   ├── middleware.go       # Multi-key gateway protection (SetKeys rotation, X-Gateway-Key / X-Relay-Key / Bearer)
 │   └── middleware_test.go  # TDD tests for multi-key authorization, rotation, and 401 Unauthorized
+├── ratelimit/
+│   ├── limiter.go          # Per-client token-bucket rate limiter (60 RPM default, burst 10, dynamic UpdateLimits)
+│   └── limiter_test.go     # TDD tests for token bucket math, burst, Retry-After header, and independent client buckets
 ├── cache/
 │   ├── memory.go           # In-memory ETag response cache & 304 revalidation
 │   └── memory_test.go      # TDD tests for cache hits, misses, and 304 handling
@@ -60,8 +65,13 @@ internal/
 │   ├── handler.go          # ReverseProxy handler integrating policy check, cache, & TokenPool
 │   └── handler_test.go     # TDD tests using mock upstream GitHub server
 └── telemetry/
-    ├── status.go           # /_relay/status handler (exposing per-token quota & uptime)
+    ├── status.go           # /_gateway/status (and /_relay/status) health and quota telemetry
     └── status_test.go      # TDD tests for status endpoint
 ```
 
-**Structure Decision**: Idiomatic Go standard layout separating binary entry point (`cmd/relay`) from testable, decoupled internal packages (`internal/*`).
+**Architecture & Pipeline Ordering**:
+$$\text{Request} \longrightarrow \text{AuthMgr} \longrightarrow \text{RateLimiter} \longrightarrow \text{ETag Cache} \longrightarrow \text{Policy Evaluator} \longrightarrow \text{Token Pool} \longrightarrow \text{GitHub}$$
+
+- **Zero-Restart Reload**: `App.Reload()` validates new syntax before atomically swapping pointers; syntax or parse errors safely roll back to previous state without dropping active traffic.
+- **Client Rate Limiting**: Pure Go standard library token-bucket with per-second refill, protecting the shared token pool from rogue / noisy neighbor clients.
+

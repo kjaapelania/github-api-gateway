@@ -93,23 +93,49 @@ Clients frequently query the same API endpoints (releases, commits, tags). The r
 Operators need to monitor the health of the relay and see the live status of each token, cache stats, and policy matches.
 
 **Acceptance Scenarios**:
-1. Call `GET /_relay/status` and assert JSON contains uptime, active token pool status, cache count, and policy status.
+1. Call `GET /_gateway/status` (or `GET /_relay/status`) and assert JSON contains uptime, active token pool status, cache count, and policy status.
+
+---
+
+### User Story 8 - Zero-Restart Hot-Reloading (Priority: P8)
+
+Operators need to dynamically update the YAML access policy, rotate gateway client keys, update token pools, or adjust rate limit configs without restarting the gateway process or dropping active HTTP connections.
+
+**Acceptance Scenarios**:
+1. **Given** a running gateway, **When** an operator issues `POST /_gateway/reload` (or sends `SIGHUP`), **Then** the gateway reloads `.env`, `policy.yaml`, and internal state in-memory, returning `200 OK` with updated stats.
+2. **Given** an invalid YAML syntax or corrupt config during reload, **When** `POST /_gateway/reload` is called, **Then** the gateway atomically rolls back, returns `400 Bad Request`, and preserves the previous valid state.
+
+---
+
+### User Story 9 - Per-Client Token-Bucket Rate Limiter (Priority: P9)
+
+A single rogue client or flooded CI loop must not issue excessive traffic to consume all available GitHub token quota from the shared pool ("noisy neighbor" protection).
+
+**Acceptance Scenarios**:
+1. **Given** `GITHUB_API_GATEWAY_CLIENT_MAX_RPM=60` and `GITHUB_API_GATEWAY_CLIENT_BURST=10`, **When** an authorized client exceeds their rate limit, **Then** the gateway responds with `429 Too Many Requests`, sets a `Retry-After: <seconds>` header, and returns a JSON diagnostic error without forwarding requests upstream.
+2. **Given** multiple clients with distinct keys (`X-Gateway-Key`, `X-Relay-Key`, or `Authorization: Bearer`), **When** client A is throttled, **Then** client B continues to execute normally with an independent token bucket.
+3. **Given** unauthenticated open mode (no keys configured), **When** requests arrive, **Then** the limiter buckets requests by client IP.
 
 ---
 
 ## Requirements *(mandatory)*
 
-- **FR-001**: Relay MUST proxy HTTP requests targeting GitHub API to `https://api.github.com`.
-- **FR-002**: Relay MUST support any valid GitHub token format (Classic `ghp_`, Fine-Grained `github_pat_`, OAuth `gho_`, GitHub App `ghs_`).
-- **FR-003**: Relay MUST support multiple relay authentication keys (`RELAY_AUTH_KEYS` / `client_keys`) for zero-downtime rotation.
-- **FR-004**: Relay MUST select tokens using a Largest Remaining Quota First strategy, automatically skipping tokens whose remaining quota is below `TOKEN_MIN_REMAINING` (default: 3000).
-- **FR-005**: Relay MUST enforce a unified 10-second post-reset buffer and 10-second probe cooldown for reset detection without background threads.
-- **FR-006**: Relay MUST enforce a Fail-Closed Default Deny access policy defined in a YAML configuration file.
+- **FR-001**: Gateway MUST proxy HTTP requests targeting GitHub API to `https://api.github.com`.
+- **FR-002**: Gateway MUST support any valid GitHub token format (Classic `ghp_`, Fine-Grained `github_pat_`, OAuth `gho_`, GitHub App `ghs_`).
+- **FR-003**: Gateway MUST support multiple gateway authentication keys (`GITHUB_API_GATEWAY_AUTH_KEYS`) for zero-downtime rotation.
+- **FR-004**: Gateway MUST select tokens using a Largest Remaining Quota First strategy, automatically skipping tokens whose remaining quota is below `GITHUB_API_GATEWAY_TOKEN_MIN_REMAINING` (default: 3000).
+- **FR-005**: Gateway MUST enforce a unified 10-second post-reset buffer and 10-second probe cooldown for reset detection without background threads.
+- **FR-006**: Gateway MUST enforce a Fail-Closed Default Deny access policy defined in a YAML configuration file.
 - **FR-007**: Policy attributes `repo`, `repo_regex`, `path`, and `path_regex` MUST accept either a single string or an array of strings.
-- **FR-008**: Relay policy rules MUST support either `repo` (glob) OR `repo_regex` (Go regex), but NEVER both in the same rule.
-- **FR-009**: Relay policy rules MUST support either `path` (glob) OR `path_regex` (Go regex), but NEVER both in the same rule.
-- **FR-010**: Relay policy rules MUST strictly require `methods`. Unlisted or misspelled methods MUST cause startup validation failure.
-- **FR-011**: Relay MUST hard-block requests to sensitive user and account endpoints (`/user`, `/user/**`, `/admin/**`, `/authorizations/**`).
-- **FR-012**: If `FALLBACK_UNAUTHENTICATED=true`, relay MUST fall back to unauthenticated requests when all tokens are exhausted or no tokens are provided.
-- **FR-013**: Relay MUST cache `GET` responses with `ETag` and send `If-None-Match` upstream to leverage zero-quota `304 Not Modified` responses.
-- **FR-014**: Relay MUST expose `GET /_relay/status` with per-token quota telemetry and health.
+- **FR-008**: Gateway policy rules MUST support either `repo` (glob) OR `repo_regex` (Go regex), but NEVER both in the same rule.
+- **FR-009**: Gateway policy rules MUST support either `path` (glob) OR `path_regex` (Go regex), but NEVER both in the same rule.
+- **FR-010**: Gateway policy rules MUST strictly require `methods`. Unlisted or misspelled methods MUST cause startup validation failure.
+- **FR-011**: Gateway MUST hard-block requests to sensitive user and account endpoints (`/user`, `/user/**`, `/admin/**`, `/authorizations/**`).
+- **FR-012**: If `GITHUB_API_GATEWAY_FALLBACK_UNAUTHENTICATED=true`, gateway MUST fall back to unauthenticated requests when all tokens are exhausted or no tokens are provided.
+- **FR-013**: Gateway MUST cache `GET` responses with `ETag` and send `If-None-Match` upstream to leverage zero-quota `304 Not Modified` responses.
+- **FR-014**: Gateway MUST expose `GET /_gateway/status` with per-token quota telemetry and health.
+- **FR-015**: Gateway MUST support zero-restart hot-reloading via `POST /_gateway/reload` and `SIGHUP` with atomic rollback on invalid configuration or syntax errors.
+- **FR-016**: Gateway MUST enforce per-client token-bucket rate limiting (`GITHUB_API_GATEWAY_CLIENT_MAX_RPM`, default: 60 req/min, burst: 10) to protect the shared token pool from noisy neighbors.
+- **FR-017**: Throttled clients MUST receive `429 Too Many Requests` with a `Retry-After: <seconds>` header and a structured JSON diagnostic body.
+- **FR-018**: All environment variables MUST use the canonical prefix `GITHUB_API_GATEWAY_*`, and runtime parameters MUST be overridable via CLI flags.
+

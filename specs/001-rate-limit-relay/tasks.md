@@ -87,3 +87,27 @@
 
 - [x] **T016**: Implement `cmd/relay/main.go` wiring all middlewares (Auth → Policy → Cache → Proxy → Status) and setting up graceful shutdown.
 - [x] **T017**: [TDD] Write end-to-end integration test in `cmd/relay/main_test.go` running the complete relay against a mock GitHub API and sample `policy.yaml`, verifying all user stories end-to-end.
+
+---
+
+## Phase 9: Zero-Restart Hot-Reloading & Safe Rollback
+
+- [x] **T018 [Reload]**: [TDD] Write integration tests in `cmd/gateway/main_test.go` (`TestEndToEnd_ReloadSafetyAndRollback`) asserting that `POST /_gateway/reload` dynamically reloads configuration, policy, tokens, and gateway keys in-memory. Verify corrupt YAML returns 400 Bad Request and preserves previous valid state.
+- [x] **T019 [Reload]**: Implement `App.Reload()` and reload HTTP endpoint in `cmd/gateway/app.go`, plus SIGHUP signal listener in `cmd/gateway/main.go`.
+
+---
+
+## Phase 10: Canonical Gateway Renaming & Environment Configuration
+
+- [x] **T020 [Rename]**: Rename Go module from `github-api-relay` to `github-api-gateway`, move `cmd/relay/` to `cmd/gateway/`, update binary compilation to `bin/gateway`.
+- [x] **T021 [Rename]**: Standardize environment prefix to `GITHUB_API_GATEWAY_*` across `internal/config/config.go`, `Dockerfile`, `docker-compose.yml`, `mise.toml`, and `.env.example`.
+
+---
+
+## Phase 11: Per-Client Token-Bucket Rate Limiting (Excessive Call Protection)
+
+- [x] **T022 [RateLimit]**: [TDD] Write unit tests in `internal/ratelimit/limiter_test.go` asserting token-bucket refill math, burst capacity, independent buckets per client key (`X-Gateway-Key`, `X-Relay-Key`, `Authorization: Bearer`), IP fallback in open mode, and `429 Too Many Requests` with `Retry-After` header.
+- [x] **T023 [RateLimit]**: Implement `internal/ratelimit/limiter.go` using pure Go standard library (`sync.Mutex` and `time.Now()`) with `UpdateLimits` support.
+- [x] **T024 [RateLimit]**: Add `ClientMaxRPM` and `ClientBurst` to `internal/config/config.go` with unit tests in `internal/config/config_test.go`.
+- [x] **T025 [RateLimit]**: Wire `Limiter` into `cmd/gateway/app.go` (`Auth -> RateLimiter -> Cache -> Proxy`), wire CLI flags `-client-max-rpm` and `-client-burst` into `cmd/gateway/main.go`, and add E2E integration test `TestEndToEnd_ClientRateLimiting` in `cmd/gateway/main_test.go`.
+
