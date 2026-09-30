@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -101,39 +102,6 @@ func TestLimiter_XRelayKeyHeader(t *testing.T) {
 	}
 }
 
-func TestLimiter_RefillOverTime(t *testing.T) {
-	// High rate: 600 RPM (10 tokens/sec), burst 1
-	limiter := ratelimit.NewLimiter(600, 1)
-	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	// 1st request uses the 1 burst token
-	req1 := httptest.NewRequest("GET", "/test", nil)
-	rec1 := httptest.NewRecorder()
-	handler.ServeHTTP(rec1, req1)
-	if rec1.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec1.Code)
-	}
-
-	// 2nd immediate request gets 429
-	rec2 := httptest.NewRecorder()
-	handler.ServeHTTP(rec2, req1)
-	if rec2.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d", rec2.Code)
-	}
-
-	// Wait 150ms (refills > 1 token at 10 tokens/sec)
-	time.Sleep(150 * time.Millisecond)
-
-	// 3rd request should now succeed
-	rec3 := httptest.NewRecorder()
-	handler.ServeHTTP(rec3, req1)
-	if rec3.Code != http.StatusOK {
-		t.Fatalf("expected 200 after token refill, got %d", rec3.Code)
-	}
-}
-
 func TestLimiter_XGatewayKeyHeader(t *testing.T) {
 	limiter := ratelimit.NewLimiter(60, 1)
 	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -157,6 +125,88 @@ func TestLimiter_XGatewayKeyHeader(t *testing.T) {
 	}
 }
 
+func TestLimiter_VirtualTimeRefill(t *testing.T) {
+	// Rate: 60 RPM (1 token/sec), burst 1
+	limiter := ratelimit.NewLimiter(60, 1)
+	now := time.Now()
+
+	// 1st request succeeds
+	allowed, _ := limiter.AllowAt("client-vt", now)
+	if !allowed {
+		t.Fatal("expected 1st request to be allowed")
+	}
+
+	// Immediate 2nd request is throttled
+	allowed, retryAfter := limiter.AllowAt("client-vt", now)
+	if allowed {
+		t.Fatal("expected 2nd immediate request to be throttled")
+	}
+	if retryAfter != 1 {
+		t.Fatalf("expected retryAfter 1, got %d", retryAfter)
+	}
+
+	// Advance virtual time by 1 second instantly without sleeping!
+	future := now.Add(1 * time.Second)
+	allowed, _ = limiter.AllowAt("client-vt", future)
+	if !allowed {
+		t.Fatal("expected request to be allowed after 1s virtual time advancement")
+	}
+}
+
+func TestBucket_DeterministicRefill(t *testing.T) {
+	now := time.Now()
+	// Rate: 2.0 tokens/sec, burst: 5
+	b := ratelimit.NewBucket(2.0, 5)
+
+	// Consume all 5 burst tokens
+	for i := 0; i < 5; i++ {
+		allowed, _ := b.AllowAt(now)
+		if !allowed {
+			t.Fatalf("expected burst token %d to be allowed", i)
+		}
+	}
+
+	// 6th request is throttled
+	allowed, retryAfter := b.AllowAt(now)
+	if allowed {
+		t.Fatal("expected 6th request to be denied")
+	}
+	if retryAfter != 1 {
+		t.Fatalf("expected retryAfter 1, got %d", retryAfter)
+	}
+
+	// Advance virtual time by 2.5 seconds (should refill 5 tokens, clamped at burst 5)
+	future := now.Add(2500 * time.Millisecond)
+	for i := 0; i < 5; i++ {
+		allowed, _ := b.AllowAt(future)
+		if !allowed {
+			t.Fatalf("expected refilled token %d to be allowed", i)
+		}
+	}
+}
+
+func TestLimiter_ConcurrentFineGrainedClients(t *testing.T) {
+	limiter := ratelimit.NewLimiter(600, 10)
+	var wg sync.WaitGroup
+
+	// 20 distinct clients issuing requests concurrently without deadlocks or contention
+	for c := 0; c < 20; c++ {
+		wg.Add(1)
+		clientID := "client-" + string(rune('A'+c))
+		go func(id string) {
+			defer wg.Done()
+			for r := 0; r < 5; r++ {
+				allowed, _ := limiter.Allow(id)
+				if !allowed {
+					t.Errorf("expected client %s request %d to be allowed", id, r)
+				}
+			}
+		}(clientID)
+	}
+
+	wg.Wait()
+}
+
 func TestLimiter_UpdateLimits(t *testing.T) {
 	limiter := ratelimit.NewLimiter(60, 1)
 	rpm, burst := limiter.Limits()
@@ -164,10 +214,28 @@ func TestLimiter_UpdateLimits(t *testing.T) {
 		t.Fatalf("expected 60, 1; got %d, %d", rpm, burst)
 	}
 
+	// Populate a bucket
+	limiter.Allow("client-pre")
+
+	// Update limits
 	limiter.UpdateLimits(120, 20)
 	rpm, burst = limiter.Limits()
 	if rpm != 120 || burst != 20 {
 		t.Fatalf("expected 120, 20; got %d, %d", rpm, burst)
 	}
-}
 
+	// Verify the existing bucket also updated its parameters
+	b := limiter.GetBucket("client-pre")
+	future := time.Now().Add(10 * time.Second)
+	// Bucket can now burst up to 20
+	allowedCount := 0
+	for i := 0; i < 25; i++ {
+		allowed, _ := b.AllowAt(future)
+		if allowed {
+			allowedCount++
+		}
+	}
+	if allowedCount != 20 {
+		t.Fatalf("expected updated burst capacity 20, got allowed count %d", allowedCount)
+	}
+}

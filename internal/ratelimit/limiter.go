@@ -11,15 +11,78 @@ import (
 	"time"
 )
 
-type bucket struct {
+// Bucket represents a thread-safe token bucket for a single client.
+type Bucket struct {
+	mu         sync.Mutex
 	tokens     float64
 	lastRefill time.Time
+	burst      int
+	ratePerS   float64
+}
+
+// NewBucket creates a new token bucket starting at full burst capacity.
+func NewBucket(ratePerS float64, burst int) *Bucket {
+	return &Bucket{
+		tokens:     float64(burst),
+		lastRefill: time.Now(),
+		burst:      burst,
+		ratePerS:   ratePerS,
+	}
+}
+
+// Allow attempts to consume 1 token at the current time.
+func (b *Bucket) Allow() (bool, int) {
+	return b.AllowAt(time.Now())
+}
+
+// AllowAt attempts to consume 1 token at a specific time (enabling deterministic virtual time tests).
+func (b *Bucket) AllowAt(now time.Time) (bool, int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.lastRefill.IsZero() || now.Before(b.lastRefill) {
+		b.lastRefill = now
+	} else {
+		elapsed := now.Sub(b.lastRefill).Seconds()
+		if elapsed > 0 {
+			b.tokens = math.Min(float64(b.burst), b.tokens+elapsed*b.ratePerS)
+			b.lastRefill = now
+		}
+	}
+
+	const epsilon = 1e-9
+	if b.tokens >= 1.0-epsilon {
+		b.tokens -= 1.0
+		if b.tokens < 0 {
+			b.tokens = 0
+		}
+		return true, 0
+	}
+
+	needed := 1.0 - b.tokens
+	retryAfter := int(math.Ceil(needed / b.ratePerS))
+	if retryAfter < 1 {
+		retryAfter = 1
+	}
+
+	return false, retryAfter
+}
+
+// updateParameters updates the burst and ratePerS of this bucket.
+func (b *Bucket) updateParameters(ratePerS float64, burst int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ratePerS = ratePerS
+	b.burst = burst
+	if b.tokens > float64(burst) {
+		b.tokens = float64(burst)
+	}
 }
 
 // Limiter provides per-client token-bucket rate limiting to prevent noisy-neighbor quota exhaustion.
 type Limiter struct {
-	mu       sync.Mutex
-	buckets  map[string]*bucket
+	mu       sync.RWMutex
+	buckets  map[string]*Bucket
 	maxRPM   int
 	burst    int
 	ratePerS float64
@@ -37,14 +100,14 @@ func NewLimiter(maxRPM, burst int) *Limiter {
 	}
 
 	return &Limiter{
-		buckets:  make(map[string]*bucket),
+		buckets:  make(map[string]*Bucket),
 		maxRPM:   maxRPM,
 		burst:    burst,
 		ratePerS: ratePerS,
 	}
 }
 
-// UpdateLimits dynamically updates the maxRPM and burst limits.
+// UpdateLimits dynamically updates the maxRPM and burst limits across the limiter and active buckets.
 func (l *Limiter) UpdateLimits(maxRPM, burst int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -60,21 +123,77 @@ func (l *Limiter) UpdateLimits(maxRPM, burst int) {
 	l.maxRPM = maxRPM
 	l.burst = burst
 	l.ratePerS = ratePerS
+
+	// Dynamically update existing client buckets
+	for _, b := range l.buckets {
+		b.updateParameters(ratePerS, burst)
+	}
 }
 
 // Limits returns the current maxRPM and burst.
 func (l *Limiter) Limits() (int, int) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.maxRPM, l.burst
+}
+
+// GetBucket returns the Bucket for the specified clientID, creating one if it doesn't exist.
+func (l *Limiter) GetBucket(clientID string) *Bucket {
+	l.mu.RLock()
+	b, exists := l.buckets[clientID]
+	l.mu.RUnlock()
+	if exists {
+		return b
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.maxRPM, l.burst
+	// Double-checked locking
+	b, exists = l.buckets[clientID]
+	if !exists {
+		b = &Bucket{
+			tokens:     float64(l.burst),
+			lastRefill: time.Now(),
+			burst:      l.burst,
+			ratePerS:   l.ratePerS,
+		}
+		l.buckets[clientID] = b
+	}
+	return b
+}
+
+// Allow checks if the given client is allowed to proceed at the current time.
+func (l *Limiter) Allow(clientID string) (bool, int) {
+	l.mu.RLock()
+	maxRPM := l.maxRPM
+	l.mu.RUnlock()
+
+	if maxRPM <= 0 {
+		return true, 0
+	}
+
+	return l.GetBucket(clientID).Allow()
+}
+
+// AllowAt checks if the given client is allowed to proceed at a specific time (useful for deterministic tests).
+func (l *Limiter) AllowAt(clientID string, now time.Time) (bool, int) {
+	l.mu.RLock()
+	maxRPM := l.maxRPM
+	l.mu.RUnlock()
+
+	if maxRPM <= 0 {
+		return true, 0
+	}
+
+	return l.GetBucket(clientID).AllowAt(now)
 }
 
 // Middleware wraps an http.Handler with per-client rate limiting.
 func (l *Limiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		l.mu.Lock()
+		l.mu.RLock()
 		maxRPM := l.maxRPM
-		l.mu.Unlock()
+		l.mu.RUnlock()
 
 		if maxRPM <= 0 {
 			next.ServeHTTP(w, r)
@@ -82,7 +201,7 @@ func (l *Limiter) Middleware(next http.Handler) http.Handler {
 		}
 
 		clientID := extractClientID(r)
-		allowed, retryAfter := l.allow(clientID)
+		allowed, retryAfter := l.GetBucket(clientID).Allow()
 		if !allowed {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
@@ -97,40 +216,6 @@ func (l *Limiter) Middleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
-}
-
-func (l *Limiter) allow(clientID string) (bool, int) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	now := time.Now()
-	b, exists := l.buckets[clientID]
-	if !exists {
-		b = &bucket{
-			tokens:     float64(l.burst),
-			lastRefill: now,
-		}
-		l.buckets[clientID] = b
-	} else {
-		// Refill tokens based on elapsed time
-		elapsed := now.Sub(b.lastRefill).Seconds()
-		b.tokens = math.Min(float64(l.burst), b.tokens+elapsed*l.ratePerS)
-		b.lastRefill = now
-	}
-
-	if b.tokens >= 1.0 {
-		b.tokens -= 1.0
-		return true, 0
-	}
-
-	// Calculate wait time until 1 token is available
-	needed := 1.0 - b.tokens
-	retryAfter := int(math.Ceil(needed / l.ratePerS))
-	if retryAfter < 1 {
-		retryAfter = 1
-	}
-
-	return false, retryAfter
 }
 
 func extractClientID(r *http.Request) string {
