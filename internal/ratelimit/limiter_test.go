@@ -125,6 +125,38 @@ func TestLimiter_XGatewayKeyHeader(t *testing.T) {
 	}
 }
 
+func TestLimiter_XForwardedForHeader(t *testing.T) {
+	limiter := ratelimit.NewLimiter(60, 1)
+	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req1 := httptest.NewRequest("GET", "/test", nil)
+	req1.Header.Set("X-Forwarded-For", "203.0.113.195, 70.41.3.18")
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for first request, got %d", rec1.Code)
+	}
+
+	req2 := httptest.NewRequest("GET", "/test", nil)
+	req2.Header.Set("X-Forwarded-For", "203.0.113.195, 70.41.3.18")
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests for second request with same client IP, got %d", rec2.Code)
+	}
+
+	// Different forwarded IP should succeed
+	req3 := httptest.NewRequest("GET", "/test", nil)
+	req3.Header.Set("X-Forwarded-For", "198.51.100.1")
+	rec3 := httptest.NewRecorder()
+	handler.ServeHTTP(rec3, req3)
+	if rec3.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for different client IP, got %d", rec3.Code)
+	}
+}
+
 func TestLimiter_VirtualTimeRefill(t *testing.T) {
 	// Rate: 60 RPM (1 token/sec), burst 1
 	limiter := ratelimit.NewLimiter(60, 1)

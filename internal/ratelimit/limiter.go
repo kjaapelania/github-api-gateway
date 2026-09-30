@@ -59,6 +59,10 @@ func (b *Bucket) AllowAt(now time.Time) (bool, int) {
 		return true, 0
 	}
 
+	if b.ratePerS <= 0 {
+		return false, 60
+	}
+
 	needed := 1.0 - b.tokens
 	retryAfter := int(math.Ceil(needed / b.ratePerS))
 	if retryAfter < 1 {
@@ -236,7 +240,15 @@ func extractClientID(r *http.Request) string {
 		}
 	}
 
-	// 3. Fallback to client IP (in open mode)
+	// 3. Check X-Forwarded-For header for reverse proxies / load balancers
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if clientIP := strings.TrimSpace(parts[0]); clientIP != "" {
+			return clientIP
+		}
+	}
+
+	// 4. Fallback to client IP (in open mode)
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil && ip != "" {
 		return ip
