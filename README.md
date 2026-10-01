@@ -47,7 +47,7 @@ The gateway processes all requests through an ordered, high-performance middlewa
 <details>
 <summary><b>View Mermaid Source Code</b></summary>
 
-```mermaid
+```text
 flowchart LR
     Client["Internal Client<br/>(CI / Dev / Service)"]
     

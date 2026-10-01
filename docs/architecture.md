@@ -59,7 +59,7 @@ The gateway is built using pure Go standard library primitives with zero runtime
 <details>
 <summary><b>View Mermaid Source Code</b></summary>
 
-```mermaid
+```text
 flowchart TD
     subgraph Clients ["Internal Enterprise Clients"]
         CI["CI/CD Pipeline Runners"]
@@ -129,7 +129,7 @@ flowchart TD
 <details>
 <summary><b>View Mermaid Source Code</b></summary>
 
-```mermaid
+```text
 sequenceDiagram
     autonumber
     actor Client as Internal Client
@@ -175,7 +175,7 @@ sequenceDiagram
 <details>
 <summary><b>View Mermaid Source Code</b></summary>
 
-```mermaid
+```text
 sequenceDiagram
     autonumber
     actor Client as Internal Client
@@ -209,7 +209,7 @@ sequenceDiagram
 <details>
 <summary><b>View Mermaid Source Code</b></summary>
 
-```mermaid
+```text
 sequenceDiagram
     autonumber
     actor Client as Internal Client
@@ -238,7 +238,7 @@ sequenceDiagram
 <details>
 <summary><b>View Mermaid Source Code</b></summary>
 
-```mermaid
+```text
 sequenceDiagram
     autonumber
     actor Operator as DevOps / SRE
@@ -279,7 +279,7 @@ sequenceDiagram
 <details>
 <summary><b>View Mermaid Source Code</b></summary>
 
-```mermaid
+```text
 stateDiagram-v2
     [*] --> Healthy: Initialize Token (Quota = 5000)
 
@@ -330,7 +330,7 @@ stateDiagram-v2
 <details>
 <summary><b>View Mermaid Source Code</b></summary>
 
-```mermaid
+```text
 stateDiagram-v2
     [*] --> FullBurst: New Client (tokens = Burst, e.g. 10)
 
@@ -364,7 +364,7 @@ stateDiagram-v2
 <details>
 <summary><b>View Mermaid Source Code</b></summary>
 
-```mermaid
+```text
 classDiagram
     class App {
         -Config config
