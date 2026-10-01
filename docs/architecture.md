@@ -194,7 +194,7 @@ sequenceDiagram
     Gateway->>GitHub: GET /repos/my-org/app/releases/download/... (Injected Token)
     GitHub-->>Gateway: 302 Found (Location: https://objects.githubusercontent.com/...)
     Gateway-->>Client: 302 Found (Location: https://objects.githubusercontent.com/...)
-    Note over Gateway: Zero memory buffering; large binary not loaded into RAM
+    Note over Gateway: Zero memory buffering - large binary not loaded into RAM
     Client->>S3: GET https://objects.githubusercontent.com/...
     S3-->>Client: 200 OK (Stream binary asset directly)
 ```
@@ -218,7 +218,7 @@ sequenceDiagram
 
     alt Invalid YAML Syntax or Misspelled Method
         Reloader->>Reloader: Validation Failed!
-        Reloader->>Reloader: Roll back; keep previous state pointers intact
+        Reloader->>Reloader: Roll back and keep previous state pointers intact
         Reloader-->>Server: Error (validation failed)
         Server-->>Operator: 400 Bad Request ("previous configuration preserved")
     else Valid Configuration
