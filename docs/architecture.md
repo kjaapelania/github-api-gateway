@@ -14,39 +14,39 @@ This document provides technical design specifications and unified modeling lang
 >
 > **NEVER expose this gateway to the public internet.** Exposing it publicly would allow unauthorized external actors to exhaust your pooled GitHub token quota, trigger global IP bans, or abuse the proxy.
 
+![System Boundary and Deployment Scope](images/diag_system_boundary.svg)
+
+<details>
+<summary><b>View Mermaid Source Code</b></summary>
+
+```text
+flowchart TD
+    subgraph VPC ["PRIVATE COMPANY NETWORK / VPC (Firewalled Subnet)"]
+        subgraph Clients ["Enterprise Internal Clients"]
+            CI["CI/CD Pipeline Runners"]
+            Dev["Developer Workstations"]
+            Services["Internal Microservices"]
+        end
+
+        Gateway["GitHub API Gateway (Internal Service)<br/>- Pre-Shared Key Auth (X-Gateway-Key)<br/>- Token-Bucket Rate Limiter (60 RPM)<br/>- ETag Zero-Quota RAM Cache<br/>- Fail-Closed Policy Evaluator<br/>- Largest-Remaining Multi-Token Pool<br/>- Zero-Restart Hot-Reloading"]
+        
+        CI -->|Internal Traffic| Gateway
+        Dev -->|Internal Traffic| Gateway
+        Services -->|Internal Traffic| Gateway
+    end
+
+    subgraph Internet ["PUBLIC INTERNET (Outbound HTTPS via NAT Gateway)"]
+        GH["GitHub REST API (api.github.com)<br/>5,000+ req/hr per Pooled Token"]
+        S3["AWS S3 CDN (objects.githubusercontent.com)<br/>Direct Binary Release Assets"]
+        GH -.->|302 Redirect Location| S3
+    end
+
+    Gateway -->|HTTPS Egress with Pooled Token| GH
+    CI -.->|Direct 302 Download Stream| S3
+    Dev -.->|Direct 302 Download Stream| S3
 ```
-+--------------------------------------------------------------------------------+
-| PRIVATE COMPANY NETWORK / VPC (Firewalled Subnet)                              |
-|                                                                                |
-|  [ CI/CD Runners ]     [ Dev Workstations ]     [ Internal Microservices ]     |
-|          \                      |                      /                       |
-|           \                     |                     /                        |
-|            +--------------------+--------------------+                         |
-|                                 |                                              |
-|                                 v                                              |
-|                  +------------------------------+                              |
-|                  |    GitHub API Gateway        |                              |
-|                  |  - Pre-Shared Key Auth       |                              |
-|                  |  - Token-Bucket Rate Limiter |                              |
-|                  |  - ETag Zero-Quota Cache     |                              |
-|                  |  - Fail-Closed Policy Guard  |                              |
-|                  |  - Multi-Token Pool          |                              |
-|                  |  - Zero-Restart Hot-Reload   |                              |
-|                  +--------------+---------------+                              |
-+---------------------------------|----------------------------------------------+
-                                  | (HTTPS via NAT Gateway / Egress Proxy)
-==================================|===============================================
-PUBLIC INTERNET                   v
-                 +---------------------------------+
-                 |  GitHub REST API (api.github.com)|  (5,000+ req/hr per token)
-                 +----------------+----------------+
-                                  |
-                                  | (302 Found Asset Redirect)
-                                  v
-                 +---------------------------------+
-                 |  AWS S3 CDN (objects.github...) |  (Zero bandwidth gateway cost)
-                 +---------------------------------+
-```
+
+</details>
 
 ---
 
