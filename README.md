@@ -40,13 +40,18 @@ An enterprise-grade reverse proxy and micro-gateway designed to eliminate unauth
 
 The gateway processes all requests through an ordered, high-performance middleware pipeline:
 
-$$\text{Client} \longrightarrow \text{AuthMgr} \longrightarrow \text{RateLimiter} \longrightarrow \text{ETag Cache} \longrightarrow \text{Policy Evaluator} \longrightarrow \text{Token Pool} \longrightarrow \text{GitHub}$$
+**Internal Client** ➔ **Auth Manager** ➔ **Rate Limiter** ➔ **ETag Cache** ➔ **Policy Evaluator** ➔ **Token Pool** ➔ **GitHub API**
+
+![Request Processing Pipeline](docs/images/diag_pipeline_flow.svg)
+
+<details>
+<summary><b>View Mermaid Source Code</b></summary>
 
 ```mermaid
 flowchart LR
     Client["Internal Client<br/>(CI / Dev / Service)"]
     
-    subgraph Gateway["GitHub API Gateway (Go Standard Library)"]
+    subgraph Gateway ["GitHub API Gateway (Go Standard Library)"]
         Auth["1. Auth Manager<br/>(X-Gateway-Key)"]
         RL["2. Rate Limiter<br/>(60 RPM / 10 Burst)"]
         Cache["3. ETag Cache<br/>(0-Quota 304 Reval)"]
@@ -56,13 +61,15 @@ flowchart LR
 
     Upstream["GitHub API<br/>api.github.com<br/>(5000+ req/hr)"]
 
-    Client -->|"Request + Key"| Auth
-    Auth -->|"Valid"| RL
-    RL -->|"Under Limit"| Cache
-    Cache -->|"Cache Miss / Reval"| Policy
-    Policy -->|"Approved"| Proxy
-    Proxy -->|"Injected Token"| Upstream
+    Client -->|Request + Key| Auth
+    Auth -->|Valid| RL
+    RL -->|Under Limit| Cache
+    Cache -->|Cache Miss or Reval| Policy
+    Policy -->|Approved| Proxy
+    Proxy -->|Injected Token| Upstream
 ```
+
+</details>
 
 > [!NOTE]
 > For detailed UML sequence diagrams, state machines, and class structures, see [**`docs/architecture.md`**](docs/architecture.md).
