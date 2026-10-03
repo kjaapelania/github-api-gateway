@@ -31,7 +31,7 @@ RUN addgroup -g 1000 -S gateway && adduser -u 1000 -S gateway -G gateway
 COPY --from=builder --chown=gateway:gateway /app/bin/gateway /app/gateway
 
 USER gateway
-EXPOSE 8080
+EXPOSE 28280
 ENTRYPOINT ["/app/gateway"]
 
 # ------------------------------------------------------------------------------
@@ -44,7 +44,7 @@ WORKDIR /app
 COPY --from=builder /app/bin/gateway /app/gateway
 
 USER nonroot:nonroot
-EXPOSE 8080
+EXPOSE 28280
 ENTRYPOINT ["/app/gateway"]
 
 # ------------------------------------------------------------------------------
@@ -66,5 +66,5 @@ RUN groupadd -g 1000 gateway && useradd -u 1000 -g gateway -s /bin/bash -m gatew
 COPY --from=builder --chown=gateway:gateway /app/bin/gateway /app/gateway
 
 USER gateway
-EXPOSE 8080
+EXPOSE 28280
 ENTRYPOINT ["/app/gateway"]

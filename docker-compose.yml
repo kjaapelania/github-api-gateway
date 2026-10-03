@@ -8,12 +8,12 @@ services:
     container_name: github-api-gateway
     restart: unless-stopped
     ports:
-      - "${GITHUB_API_GATEWAY_PORT:-8080}:8080"
+      - "${GITHUB_API_GATEWAY_PORT:-28280}:28280"
     env_file:
       - path: .env
         required: false
     environment:
-      - GITHUB_API_GATEWAY_PORT=8080
+      - GITHUB_API_GATEWAY_PORT=28280
       - GITHUB_API_GATEWAY_POLICY_PATH=/app/policy.yaml
       - GITHUB_API_GATEWAY_TOKENS=${GITHUB_API_GATEWAY_TOKENS:-}
       - GITHUB_API_GATEWAY_AUTH_KEYS=${GITHUB_API_GATEWAY_AUTH_KEYS:-}
@@ -26,7 +26,7 @@ services:
     volumes:
       - ./policy.yaml:/app/policy.yaml:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/_gateway/status || wget -qO- http://127.0.0.1:8080/_gateway/status || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:28280/_gateway/status || wget -qO- http://127.0.0.1:28280/_gateway/status || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -25,8 +25,8 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("expected no error loading defaults, got: %v", err)
 	}
 
-	if cfg.Port != "8080" {
-		t.Errorf("expected Port=8080, got: %s", cfg.Port)
+	if cfg.Port != "28280" {
+		t.Errorf("expected Port=28280, got: %s", cfg.Port)
 	}
 	if len(cfg.GitHubTokens) != 0 {
 		t.Errorf("expected empty GitHubTokens, got: %v", cfg.GitHubTokens)

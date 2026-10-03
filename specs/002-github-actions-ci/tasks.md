@@ -64,3 +64,4 @@
 - [x] **T024**: Clean up temporary build artifacts (`bin/`) and review git status.
 - [x] **T025**: Add `compose:ps` task to `.mise/tasks/docker.toml` running `docker compose ps` and document in `README.md`.
 - [x] **T026**: Implement cross-platform hot-reload: add `compose:reload` in `.mise/tasks/docker.toml`, update `bin:run` and `bin:reload` in `.mise/tasks/bin.toml` with `pkill -HUP` and Windows error check, add loopback guard to `POST /_gateway/reload` in `cmd/gateway/app.go`, add unit tests in `cmd/gateway/main_test.go`, and document in `README.md`.
+- [x] **T027**: Migrate default gateway port from `8080` to collision-free `28280` across `internal/config/config.go`, `Dockerfile`, `docker-compose.yml`, `.mise/tasks/docker.toml`, `.mise/tasks/bin.toml`, tests, `.env.example`, and `README.md`.

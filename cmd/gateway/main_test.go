@@ -61,7 +61,7 @@ func TestEndToEnd_Integration(t *testing.T) {
 	t.Setenv("GITHUB_API_GATEWAY_POLICY_PATH", policyPath)
 
 	cfg := &config.Config{
-		Port:                    "8080",
+		Port:                    "28280",
 		GitHubTokens:            []string{"ghp_testToken1234567890"},
 		AuthKeys:                []string{"key-ci", "key-team-a"},
 		PolicyPath:              policyPath,
@@ -317,7 +317,7 @@ internal_rules:
 	_ = tmpPolicy.Close()
 
 	cfg := &config.Config{
-		Port:                    "8080",
+		Port:                    "28280",
 		PolicyPath:              tmpPolicy.Name(),
 		AuthKeys:                []string{"key-v1"},
 		TokenMinRemaining:       3000,
@@ -384,7 +384,7 @@ func TestEndToEnd_ClientRateLimiting(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		Port:                    "8080",
+		Port:                    "28280",
 		GitHubTokens:            []string{"ghp_dummytoken"},
 		AuthKeys:                []string{"client-flood", "client-safe"},
 		PolicyPath:              policyPath,

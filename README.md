@@ -100,7 +100,7 @@ GITHUB_API_GATEWAY_TOKENS=ghp_tokenAlpha,ghp_tokenBeta
 go build -o bin/gateway ./cmd/gateway
 
 # Run the gateway
-./bin/gateway -port 8080
+./bin/gateway -port 28280
 ```
 
 ---
@@ -113,7 +113,7 @@ docker compose up -d
 
 Verify that the gateway is healthy:
 ```bash
-curl -s http://localhost:8080/_gateway/status | jq .
+curl -s http://localhost:28280/_gateway/status | jq .
 ```
 
 ---
@@ -124,7 +124,7 @@ All configuration variables use the canonical `GITHUB_API_GATEWAY_` prefix and c
 
 | Environment Variable | CLI Flag | Default | Description |
 | :--- | :--- | :---: | :--- |
-| `GITHUB_API_GATEWAY_PORT` | `-port` | `8080` | Local port to bind the HTTP server. |
+| `GITHUB_API_GATEWAY_PORT` | `-port` | `28280` | Local port to bind the HTTP server. |
 | `GITHUB_API_GATEWAY_TOKENS` | `-tokens` | *empty* | Comma-separated GitHub tokens (`ghp_`, `github_pat_`, etc.). |
 | `GITHUB_API_GATEWAY_AUTH_KEYS` | `-auth-keys` | *empty* | Comma-separated pre-shared client keys (enables key protection). |
 | `GITHUB_API_GATEWAY_POLICY_PATH` | `-policy` | `policy.yaml` | Path to the enterprise access policy file. |
@@ -177,7 +177,7 @@ external_rules:
 
 ### Check Health & Telemetry
 ```bash
-curl -s http://localhost:8080/_gateway/status | jq .
+curl -s http://localhost:28280/_gateway/status | jq .
 ```
 Returns uptime, active policy rules, cache size, and token pool health with **masked tokens** (e.g. `ghp_...18WX`).
 
@@ -194,7 +194,7 @@ Modify `policy.yaml` or change rate limits in `.env`, then trigger a zero-downti
   ```
 - **Via HTTP (Loopback-Restricted)**:
   ```bash
-  curl -X POST http://127.0.0.1:8080/_gateway/reload
+  curl -X POST http://127.0.0.1:28280/_gateway/reload
   ```
 *(Note: `POST /_gateway/reload` is restricted to local loopback addresses `127.0.0.1` and `::1` by default to prevent remote tampering).*
 

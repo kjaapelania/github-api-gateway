@@ -129,7 +129,7 @@ run = "curl -i -X POST http://localhost:${GITHUB_API_GATEWAY_PORT:-8080}/_gatewa
 
 ["bin:status"]
 description = "Query gateway status and telemetry"
-run = "curl -s http://localhost:${GITHUB_API_GATEWAY_PORT:-8080}/_gateway/status | jq ."
+run = "curl -s http://localhost:${GITHUB_API_GATEWAY_PORT:-28280}/_gateway/status | jq ."
 ```
 
 ### `.mise/tasks/dev.toml` (Developer Ergonomics)
@@ -163,7 +163,7 @@ depends = ["docker:build-debian", "docker:build-alpine", "docker:build-distroles
 
 ["docker:run"]
 description = "Run default gateway container (Debian)"
-run = "docker run --rm -p 8080:8080 -v $(pwd)/policy.yaml:/app/policy.yaml:ro --env-file .env github-api-gateway:debian"
+run = "docker run --rm -p 28280:28280 -v $(pwd)/policy.yaml:/app/policy.yaml:ro --env-file .env github-api-gateway:debian"
 
 ["docker:exec"]
 description = "Open an interactive bash shell in the running gateway container"

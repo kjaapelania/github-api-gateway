@@ -32,7 +32,7 @@ func LoadFile(envPath string) (*Config, error) {
 	loadDotEnv(envPath)
 
 	cfg := &Config{
-		Port:                    getEnv("GITHUB_API_GATEWAY_PORT", "8080"),
+		Port:                    getEnv("GITHUB_API_GATEWAY_PORT", "28280"),
 		GitHubTokens:            splitList(os.Getenv("GITHUB_API_GATEWAY_TOKENS")),
 		AuthKeys:                splitList(os.Getenv("GITHUB_API_GATEWAY_AUTH_KEYS")),
 		PolicyPath:              getEnv("GITHUB_API_GATEWAY_POLICY_PATH", "policy.yaml"),
