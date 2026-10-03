@@ -227,6 +227,7 @@ mise run docker:build-distroless # SOTA Distroless target (zero-trust prod, <2MB
 mise run docker:build            # Build all three container flavors
 mise run compose:up              # Start gateway via Docker Compose
 mise run compose:down            # Stop Docker Compose
+mise run compose:ps              # List running Compose services and status
 mise run compose:logs            # Stream container logs
 mise run compose:exec            # Interactive shell in Compose gateway service
 ```

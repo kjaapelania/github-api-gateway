@@ -62,3 +62,4 @@
 
 - [x] **T023**: Update `README.md` documenting task usage (`mise run check-all`, `mise run build-all`, `mise run dev:watch`, `mise run dev:fmt`, `./.act/ci.sh`, `mise run bin:run`, etc.).
 - [x] **T024**: Clean up temporary build artifacts (`bin/`) and review git status.
+- [x] **T025**: Add `compose:ps` task to `.mise/tasks/docker.toml` running `docker compose ps` and document in `README.md`.

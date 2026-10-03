@@ -120,7 +120,7 @@ As a release engineer, I want reproducible cross-compilation tasks (`build-all`)
 - **FR-003**: `.mise/tasks/build.toml` MUST provide dedicated cross-compilation targets (`build:local`, `build:linux-x64`, `build:linux-arm64`, `build:darwin-x64`, `build:darwin-arm64`, `build:windows-x64`) and `build-all`.
 - **FR-004**: `.mise/tasks/bin.toml` MUST preserve all runtime lifecycle tasks (`bin:run`, `bin:reload`, `bin:status`).
 - **FR-005**: `.mise/tasks/dev.toml` MUST provide developer ergonomics tasks: `dev:fmt` (auto-format) and `dev:watch` (event-driven test watcher using `watchexec`).
-- **FR-006**: `.mise/tasks/docker.toml` MUST define container tasks (`docker:build-debian`, `docker:build-alpine`, `docker:build-distroless`, `docker:build`, `docker:run`, `docker:exec`, `compose:up`, `compose:down`, `compose:logs`, `compose:exec`).
+- **FR-006**: `.mise/tasks/docker.toml` MUST define container tasks (`docker:build-debian`, `docker:build-alpine`, `docker:build-distroless`, `docker:build`, `docker:run`, `docker:exec`, `compose:up`, `compose:down`, `compose:ps`, `compose:logs`, `compose:exec`).
 - **FR-007**: A dedicated driving adapter `.act/ci.sh` MUST handle local `act` execution with Docker pre-flight verification.
 - **FR-008**: All tasks MUST have exactly ONE canonical name; no alias tasks are permitted.
 - **FR-009**: `.github/workflows/ci.yml` MUST be a driving adapter utilizing `jdx/mise-action@v2` and delegating to `mise run check:*` and `mise run docker:build-*`.

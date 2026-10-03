@@ -37,3 +37,7 @@ run = "docker compose logs -f"
 ["compose:exec"]
 description = "Open an interactive bash shell in the Compose gateway service"
 run = "docker compose exec gateway bash"
+
+["compose:ps"]
+description = "List running Docker Compose services and status"
+run = "docker compose ps"
