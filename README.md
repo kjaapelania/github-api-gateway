@@ -190,13 +190,91 @@ curl -X POST http://localhost:8080/_gateway/reload
 
 ---
 
-## Testing & Verification
+---
 
-For copy-pasteable manual test recipes (verifying bursts, client isolation, 429 throttling, and ETag revalidation), see the [**Quickstart Validation Guide**](specs/001-rate-limit-relay/quickstart.md).
+## Development & Task Automation (Ports & Adapters)
 
-Run the automated test suite with race detector:
+This repository follows the **Hexagonal (Ports and Adapters)** architecture for task automation and CI. Application tasks are defined authoritatively in modular domain files under `.mise/tasks/`, keeping the root `mise.toml` strictly for pinning tools (`go`, `act`, `watchexec`).
+
+### Quick Command Reference
+
 ```bash
-go test -race ./...
+# Quality Gate (Zero-artifact read-only checks: fmt, vet, test with -race)
+mise run check-all
+
+# Cross-Platform Static Release Compilation (CGO_ENABLED=0)
+mise run build-all               # Compiles all 5 binaries into bin/
+mise run build:local             # Current host binary
+mise run build:linux-x64         # Linux 64-bit Intel/AMD
+mise run build:linux-arm64       # Linux 64-bit ARM
+mise run build:darwin-x64        # macOS 64-bit Intel
+mise run build:darwin-arm64      # macOS Apple Silicon ARM64
+mise run build:windows-x64       # Windows 64-bit (.exe)
+
+# Developer Ergonomics
+mise run dev:fmt                 # Auto-format all Go source files (gofmt -s -w)
+mise run dev:watch               # Event-driven test watcher via watchexec (0% idle CPU)
+
+# Application Lifecycle
+mise run bin:run                 # Run native gateway binary locally
+mise run bin:status              # Query telemetry endpoint
+mise run bin:reload              # Hot-reload policy without restart
+
+# Containers & Docker Compose
+mise run docker:build-debian     # Debian-slim target (default, bash & curl)
+mise run docker:build-alpine     # Alpine target (minimal, <10MB, busybox sh)
+mise run docker:build-distroless # SOTA Distroless target (zero-trust prod, <2MB base, 0 CVEs)
+mise run docker:build            # Build all three container flavors
+mise run compose:up              # Start gateway via Docker Compose
+mise run compose:down            # Stop Docker Compose
+mise run compose:logs            # Stream container logs
+mise run compose:exec            # Interactive shell in Compose gateway service
+```
+
+---
+
+### Container Targets & Explicit Tagging
+
+The single multi-stage `Dockerfile` provides three target flavors:
+
+1. **`debian` (`debian:bookworm-slim`) [Default]**: Includes standard GNU coreutils, `bash`, and `curl` for seamless local development, testing, and interactive container debugging.
+2. **`alpine` (`alpine:3.20`)**: Traditional minimal container image (<10MB, `ca-certificates`, `tzdata`, BusyBox `/bin/sh`).
+3. **`distroless` (`gcr.io/distroless/static-debian12:nonroot`)**: SOTA hardened, zero-trust production container (<2MB base overhead, 0 CVEs, zero package manager, zero shell `/bin/sh`, non-root user).
+
+#### Explicit Tagging Conventions:
+- **Local Development**:
+  - `github-api-gateway:debian` (with `debian-latest` and `latest`)
+  - `github-api-gateway:alpine` (with `alpine-latest`)
+  - `github-api-gateway:distroless` (with `distroless-latest`)
+- **CI / Test Images**:
+  - `...-test:YYYYMMDD-HHMM-sha-<hash>-debian`
+  - `...-test:YYYYMMDD-HHMM-sha-<hash>-alpine`
+  - `...-test:YYYYMMDD-HHMM-sha-<hash>-distroless`
+- **Production Releases**:
+  - `...:<version>-debian`
+  - `...:<version>-alpine`
+  - `...:<version>-distroless`
+  - `...:debian-latest` & `...:latest` (points to Debian default)
+  - `...:alpine-latest`
+  - `...:distroless-latest`
+
+Target selection in `docker-compose.yml` is controlled via `GITHUB_API_GATEWAY_CONTAINER_TARGET` (defaulting to `debian`).
+
+---
+
+### Local CI Simulation via Act (`.act/ci.sh`)
+
+Test the exact GitHub Actions workflow inside local Docker containers on macOS (Apple Silicon) before pushing:
+
+```bash
+# Dry-run workflow syntax and step matching
+./.act/ci.sh -n
+
+# Run full containerized test matrix (Go 1.25.8 with race detector)
+./.act/ci.sh test
+
+# Run container build verification inside runner
+./.act/ci.sh container
 ```
 
 ---
