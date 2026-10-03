@@ -126,6 +126,7 @@ func main() {
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			slog.Error("server shutdown error", "error", err)
 		}
+		app.Close()
 		serverStop()
 	}()
 

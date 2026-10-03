@@ -1,9 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds runtime configuration options for the GitHub API Gateway.
@@ -18,6 +20,9 @@ type Config struct {
 	TargetURL               string
 	ClientMaxRPM            int
 	ClientBurst             int
+	PolicyPollInterval      time.Duration
+	AllowRemoteAdmin        bool
+	AdminToken              string
 }
 
 // Load parses environment variables, optionally reading from .env if present.
@@ -31,6 +36,16 @@ func Load() (*Config, error) {
 func LoadFile(envPath string) (*Config, error) {
 	loadDotEnv(envPath)
 
+	pollIntervalStr := getEnv("GITHUB_API_GATEWAY_POLICY_POLL_INTERVAL", "")
+	var pollInterval time.Duration
+	if pollIntervalStr != "" {
+		dur, err := time.ParseDuration(pollIntervalStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid GITHUB_API_GATEWAY_POLICY_POLL_INTERVAL %q: %w", pollIntervalStr, err)
+		}
+		pollInterval = dur
+	}
+
 	cfg := &Config{
 		Port:                    getEnv("GITHUB_API_GATEWAY_PORT", "28280"),
 		GitHubTokens:            splitList(os.Getenv("GITHUB_API_GATEWAY_TOKENS")),
@@ -42,6 +57,13 @@ func LoadFile(envPath string) (*Config, error) {
 		TargetURL:               getEnv("GITHUB_API_GATEWAY_TARGET_URL", "https://api.github.com"),
 		ClientMaxRPM:            getEnvInt("GITHUB_API_GATEWAY_CLIENT_MAX_RPM", 60),
 		ClientBurst:             getEnvInt("GITHUB_API_GATEWAY_CLIENT_BURST", 10),
+		PolicyPollInterval:      pollInterval,
+		AllowRemoteAdmin:        getEnvBool("GITHUB_API_GATEWAY_ALLOW_REMOTE_ADMIN", false),
+		AdminToken:              getEnv("GITHUB_API_GATEWAY_ADMIN_TOKEN", ""),
+	}
+
+	if cfg.AllowRemoteAdmin && cfg.AdminToken == "" {
+		return nil, fmt.Errorf("remote admin cannot be enabled without GITHUB_API_GATEWAY_ADMIN_TOKEN")
 	}
 
 	return cfg, nil

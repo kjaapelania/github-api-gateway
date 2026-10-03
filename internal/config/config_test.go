@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github-api-gateway/internal/config"
@@ -134,5 +135,66 @@ func TestLoadDotEnv_PreservesExistingEnv(t *testing.T) {
 	}
 	if len(cfg.GitHubTokens) != 1 || cfg.GitHubTokens[0] != "ghp_from_dotenv" {
 		t.Errorf("expected GITHUB_API_GATEWAY_TOKENS to be loaded from dotenv file, got: %v", cfg.GitHubTokens)
+	}
+}
+
+func TestLoadRemotePolicyAndAdminConfig(t *testing.T) {
+	// 1. Defaults
+	t.Setenv("GITHUB_API_GATEWAY_POLICY_POLL_INTERVAL", "")
+	t.Setenv("GITHUB_API_GATEWAY_ALLOW_REMOTE_ADMIN", "")
+	t.Setenv("GITHUB_API_GATEWAY_ADMIN_TOKEN", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("expected no error loading config defaults, got: %v", err)
+	}
+	if cfg.PolicyPollInterval != 0 {
+		t.Errorf("expected default PolicyPollInterval=0, got: %v", cfg.PolicyPollInterval)
+	}
+	if cfg.AllowRemoteAdmin {
+		t.Errorf("expected default AllowRemoteAdmin=false, got: %v", cfg.AllowRemoteAdmin)
+	}
+	if cfg.AdminToken != "" {
+		t.Errorf("expected default AdminToken='', got: %q", cfg.AdminToken)
+	}
+
+	// 2. Custom valid values
+	t.Setenv("GITHUB_API_GATEWAY_POLICY_POLL_INTERVAL", "45s")
+	t.Setenv("GITHUB_API_GATEWAY_ALLOW_REMOTE_ADMIN", "true")
+	t.Setenv("GITHUB_API_GATEWAY_ADMIN_TOKEN", "super-secret-token")
+
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatalf("expected no error loading custom config, got: %v", err)
+	}
+	if cfg.PolicyPollInterval.Seconds() != 45 {
+		t.Errorf("expected PolicyPollInterval=45s, got: %v", cfg.PolicyPollInterval)
+	}
+	if !cfg.AllowRemoteAdmin {
+		t.Errorf("expected AllowRemoteAdmin=true, got: %v", cfg.AllowRemoteAdmin)
+	}
+	if cfg.AdminToken != "super-secret-token" {
+		t.Errorf("expected AdminToken='super-secret-token', got: %q", cfg.AdminToken)
+	}
+
+	// 3. Invalid duration string
+	t.Setenv("GITHUB_API_GATEWAY_POLICY_POLL_INTERVAL", "invalid-duration")
+	_, err = config.Load()
+	if err == nil {
+		t.Errorf("expected error for invalid duration string, got nil")
+	}
+}
+
+func TestFailClosed_RemoteAdminWithoutToken(t *testing.T) {
+	t.Setenv("GITHUB_API_GATEWAY_ALLOW_REMOTE_ADMIN", "true")
+	t.Setenv("GITHUB_API_GATEWAY_ADMIN_TOKEN", "")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatalf("expected error when AllowRemoteAdmin=true and AdminToken='', got nil")
+	}
+	expectedMsg := "remote admin cannot be enabled without GITHUB_API_GATEWAY_ADMIN_TOKEN"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("expected error message to contain %q, got: %v", expectedMsg, err)
 	}
 }

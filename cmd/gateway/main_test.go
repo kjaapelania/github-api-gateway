@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github-api-gateway/internal/config"
 	"github-api-gateway/internal/token"
@@ -463,5 +464,496 @@ func TestEndToEnd_ClientRateLimiting(t *testing.T) {
 	resSafe.Body.Close()
 	if resSafe.StatusCode != http.StatusOK {
 		t.Errorf("expected independent client-safe to receive 200 OK, got %d", resSafe.StatusCode)
+	}
+}
+
+func TestEndToEnd_RemotePolicyLoading(t *testing.T) {
+	// Remote YAML policy fixture
+	remoteYAML := `
+internal_rules:
+  - name: "remote-org-releases"
+    repo: "remote-corp/*"
+    path: "/repos/remote-corp/*/releases/**"
+    methods: ["GET", "HEAD"]
+`
+	mockPolicyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/policy.yaml" {
+			w.Header().Set("Content-Type", "application/yaml")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(remoteYAML))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockPolicyServer.Close()
+
+	mockGitHub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"remote_proxy":"success"}`))
+	}))
+	defer mockGitHub.Close()
+
+	// 1. Success case: NewApp boots from remote policy URL
+	cfg := &config.Config{
+		Port:                    "28280",
+		PolicyPath:              mockPolicyServer.URL + "/policy.yaml",
+		AuthKeys:                []string{"remote-key"},
+		TokenMinRemaining:       3000,
+		FallbackUnauthenticated: true,
+		CacheTTLSeconds:         300,
+		TargetURL:               mockGitHub.URL,
+	}
+
+	app, err := NewApp(cfg, mockGitHub.URL)
+	if err != nil {
+		t.Fatalf("expected NewApp to succeed with remote policy URL, got: %v", err)
+	}
+
+	gatewayServer := httptest.NewServer(app.Handler)
+	defer gatewayServer.Close()
+
+	// Verify remote rule is enforced:
+	// Allowed:
+	reqAllowed, _ := http.NewRequest("GET", gatewayServer.URL+"/repos/remote-corp/app/releases/latest", nil)
+	reqAllowed.Header.Set("Authorization", "Bearer remote-key")
+	resAllowed, err := gatewayServer.Client().Do(reqAllowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resAllowed.Body.Close()
+	if resAllowed.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK for remote allowed policy, got %d", resAllowed.StatusCode)
+	}
+
+	// Denied (default deny):
+	reqDenied, _ := http.NewRequest("GET", gatewayServer.URL+"/repos/other-corp/app/releases", nil)
+	reqDenied.Header.Set("Authorization", "Bearer remote-key")
+	resDenied, err := gatewayServer.Client().Do(reqDenied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resDenied.Body.Close()
+	if resDenied.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for unapproved repo, got %d", resDenied.StatusCode)
+	}
+
+	// 2. Fail-closed case: 404 remote policy URL must cause NewApp to fail
+	badCfg := &config.Config{
+		Port:                    "28280",
+		PolicyPath:              mockPolicyServer.URL + "/nonexistent.yaml",
+		AuthKeys:                []string{"remote-key"},
+		TokenMinRemaining:       3000,
+		FallbackUnauthenticated: true,
+		CacheTTLSeconds:         300,
+		TargetURL:               mockGitHub.URL,
+	}
+	_, err = NewApp(badCfg, mockGitHub.URL)
+	if err == nil {
+		t.Fatalf("expected NewApp to fail when remote policy returns 404, got nil error")
+	}
+}
+
+func TestEndToEnd_AdminAuthGuardMatrix(t *testing.T) {
+	policyPath, err := filepath.Abs("../../policy.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Matrix Case 1: AllowRemoteAdmin=false, AdminToken="" (local dev default)
+	t.Run("Default Local Dev", func(t *testing.T) {
+		cfg := &config.Config{
+			Port:             "28280",
+			PolicyPath:       policyPath,
+			AllowRemoteAdmin: false,
+			AdminToken:       "",
+		}
+		app, err := NewApp(cfg, "https://api.github.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Loopback -> 200 OK
+		loopbackReq := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		loopbackReq.RemoteAddr = "127.0.0.1:45678"
+		rec := httptest.NewRecorder()
+		app.Handler.ServeHTTP(rec, loopbackReq)
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 OK for loopback reload in local dev mode, got %d", rec.Code)
+		}
+
+		// Remote -> 403 Forbidden
+		remoteReq := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		remoteReq.RemoteAddr = "192.168.1.50:45678"
+		recRemote := httptest.NewRecorder()
+		app.Handler.ServeHTTP(recRemote, remoteReq)
+		if recRemote.Code != http.StatusForbidden {
+			t.Errorf("expected 403 Forbidden for remote reload, got %d", recRemote.Code)
+		}
+	})
+
+	// Matrix Case 2: AllowRemoteAdmin=false, AdminToken="secret-token" (SSRF loopback protection)
+	t.Run("Loopback SSRF Protection with Token", func(t *testing.T) {
+		cfg := &config.Config{
+			Port:             "28280",
+			PolicyPath:       policyPath,
+			AllowRemoteAdmin: false,
+			AdminToken:       "secret-token",
+		}
+		app, err := NewApp(cfg, "https://api.github.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Loopback without token -> 401 Unauthorized
+		loopbackReq := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		loopbackReq.RemoteAddr = "127.0.0.1:45678"
+		rec := httptest.NewRecorder()
+		app.Handler.ServeHTTP(rec, loopbackReq)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401 Unauthorized for loopback without token when token configured, got %d", rec.Code)
+		}
+
+		// Loopback with valid token -> 200 OK
+		loopbackAuthReq := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		loopbackAuthReq.RemoteAddr = "127.0.0.1:45678"
+		loopbackAuthReq.Header.Set("Authorization", "Bearer secret-token")
+		recAuth := httptest.NewRecorder()
+		app.Handler.ServeHTTP(recAuth, loopbackAuthReq)
+		if recAuth.Code != http.StatusOK {
+			t.Errorf("expected 200 OK for loopback with valid token, got %d", recAuth.Code)
+		}
+
+		// Remote even with token -> 403 Forbidden (remote admin disabled)
+		remoteReq := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		remoteReq.RemoteAddr = "10.0.0.1:45678"
+		remoteReq.Header.Set("Authorization", "Bearer secret-token")
+		recRemote := httptest.NewRecorder()
+		app.Handler.ServeHTTP(recRemote, remoteReq)
+		if recRemote.Code != http.StatusForbidden {
+			t.Errorf("expected 403 Forbidden for remote request when AllowRemoteAdmin=false, got %d", recRemote.Code)
+		}
+	})
+
+	// Matrix Case 3: AllowRemoteAdmin=true, AdminToken="secret-token"
+	t.Run("Remote Admin Enabled with Token", func(t *testing.T) {
+		cfg := &config.Config{
+			Port:             "28280",
+			PolicyPath:       policyPath,
+			AllowRemoteAdmin: true,
+			AdminToken:       "secret-token",
+		}
+		app, err := NewApp(cfg, "https://api.github.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Remote without token -> 401 Unauthorized
+		reqNoToken := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		reqNoToken.RemoteAddr = "172.16.0.5:12345"
+		recNoToken := httptest.NewRecorder()
+		app.Handler.ServeHTTP(recNoToken, reqNoToken)
+		if recNoToken.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401 Unauthorized for remote without token, got %d", recNoToken.Code)
+		}
+
+		// Remote with wrong token -> 401 Unauthorized
+		reqWrong := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		reqWrong.RemoteAddr = "172.16.0.5:12345"
+		reqWrong.Header.Set("Authorization", "Bearer wrong-token")
+		recWrong := httptest.NewRecorder()
+		app.Handler.ServeHTTP(recWrong, reqWrong)
+		if recWrong.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401 Unauthorized for remote with wrong token, got %d", recWrong.Code)
+		}
+
+		// Remote with valid token -> 200 OK
+		reqValid := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		reqValid.RemoteAddr = "172.16.0.5:12345"
+		reqValid.Header.Set("Authorization", "Bearer secret-token")
+		recValid := httptest.NewRecorder()
+		app.Handler.ServeHTTP(recValid, reqValid)
+		if recValid.Code != http.StatusOK {
+			t.Errorf("expected 200 OK for remote with valid token, got %d", recValid.Code)
+		}
+	})
+}
+
+func TestEndToEnd_BackgroundReconciliationLoop(t *testing.T) {
+	policyV1 := `
+internal_rules:
+  - name: "alpha-rule"
+    repo: "alpha-corp/*"
+    path: "/repos/alpha-corp/*/releases/**"
+    methods: ["GET"]
+`
+	policyV2 := `
+internal_rules:
+  - name: "beta-rule"
+    repo: "beta-corp/*"
+    path: "/repos/beta-corp/*/releases/**"
+    methods: ["GET"]
+`
+	var currentPolicy atomic.Value
+	currentPolicy.Store(policyV1)
+
+	mockPolicyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := currentPolicy.Load().(string)
+		w.Header().Set("Content-Type", "application/yaml")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(p))
+	}))
+	defer mockPolicyServer.Close()
+
+	mockGitHub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"upstream":"ok"}`))
+	}))
+	defer mockGitHub.Close()
+
+	cfg := &config.Config{
+		Port:                    "28280",
+		PolicyPath:              mockPolicyServer.URL + "/policy.yaml",
+		PolicyPollInterval:      40 * time.Millisecond,
+		AuthKeys:                []string{"reconcile-key"},
+		TokenMinRemaining:       3000,
+		FallbackUnauthenticated: true,
+		CacheTTLSeconds:         300,
+		TargetURL:               mockGitHub.URL,
+	}
+
+	app, err := NewApp(cfg, mockGitHub.URL)
+	if err != nil {
+		t.Fatalf("failed to create app: %v", err)
+	}
+	defer app.Close()
+
+	gatewayServer := httptest.NewServer(app.Handler)
+	defer gatewayServer.Close()
+	client := gatewayServer.Client()
+
+	// Initial check: alpha is allowed, beta is forbidden
+	reqAlpha, _ := http.NewRequest("GET", gatewayServer.URL+"/repos/alpha-corp/repo/releases/v1", nil)
+	reqAlpha.Header.Set("Authorization", "Bearer reconcile-key")
+	resAlpha, _ := client.Do(reqAlpha)
+	if resAlpha.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for alpha under policyV1, got %d", resAlpha.StatusCode)
+	}
+	resAlpha.Body.Close()
+
+	reqBeta, _ := http.NewRequest("GET", gatewayServer.URL+"/repos/beta-corp/repo/releases/v1", nil)
+	reqBeta.Header.Set("Authorization", "Bearer reconcile-key")
+	resBeta, _ := client.Do(reqBeta)
+	if resBeta.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for beta under policyV1, got %d", resBeta.StatusCode)
+	}
+	resBeta.Body.Close()
+
+	// Update policy on mock upstream
+	currentPolicy.Store(policyV2)
+
+	// Wait for background reconciler ticker to detect and hot-swap
+	deadline := time.Now().Add(1 * time.Second)
+	swapped := false
+	for time.Now().Before(deadline) {
+		reqCheck, _ := http.NewRequest("GET", gatewayServer.URL+"/repos/beta-corp/repo/releases/v1", nil)
+		reqCheck.Header.Set("Authorization", "Bearer reconcile-key")
+		resCheck, err := client.Do(reqCheck)
+		if err == nil {
+			status := resCheck.StatusCode
+			resCheck.Body.Close()
+			if status == http.StatusOK {
+				swapped = true
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if !swapped {
+		t.Fatalf("background reconciler failed to hot-swap policyV2 within deadline")
+	}
+}
+
+func TestEndToEnd_ReloadAPIContract(t *testing.T) {
+	policyPath, err := filepath.Abs("../../policy.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Port:             "28280",
+		PolicyPath:       policyPath,
+		AllowRemoteAdmin: true,
+		AdminToken:       "super-secret-reload-token",
+		AuthKeys:         []string{"key1"},
+	}
+
+	app, err := NewApp(cfg, "https://api.github.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Contract: 200 OK
+	t.Run("200 OK Contract", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		req.RemoteAddr = "10.0.0.1:54321"
+		req.Header.Set("Authorization", "Bearer super-secret-reload-token")
+		rec := httptest.NewRecorder()
+		app.Handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d", rec.Code)
+		}
+		var payload struct {
+			Status         string `json:"status"`
+			ActiveAuthKeys int    `json:"active_auth_keys"`
+			PolicyRules    int    `json:"policy_rules"`
+			Source         string `json:"source"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if payload.Status != "reloaded" {
+			t.Errorf("expected status 'reloaded', got %q", payload.Status)
+		}
+		if payload.ActiveAuthKeys != 1 {
+			t.Errorf("expected 1 active auth key, got %d", payload.ActiveAuthKeys)
+		}
+		if payload.PolicyRules <= 0 {
+			t.Errorf("expected positive policy rules count, got %d", payload.PolicyRules)
+		}
+	})
+
+	// 2. Contract: 401 Unauthorized
+	t.Run("401 Unauthorized Contract", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		req.RemoteAddr = "10.0.0.1:54321"
+		req.Header.Set("Authorization", "Bearer wrong-token")
+		rec := httptest.NewRecorder()
+		app.Handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401 Unauthorized, got %d", rec.Code)
+		}
+		var payload map[string]string
+		if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if payload["error"] != "unauthorized" {
+			t.Errorf("expected error 'unauthorized', got %q", payload["error"])
+		}
+	})
+
+	// 3. Contract: 403 Forbidden
+	t.Run("403 Forbidden Contract", func(t *testing.T) {
+		disallowedCfg := &config.Config{
+			Port:             "28280",
+			PolicyPath:       policyPath,
+			AllowRemoteAdmin: false,
+			AdminToken:       "",
+		}
+		disallowedApp, _ := NewApp(disallowedCfg, "https://api.github.com")
+
+		req := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		req.RemoteAddr = "10.0.0.1:54321"
+		rec := httptest.NewRecorder()
+		disallowedApp.Handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 Forbidden, got %d", rec.Code)
+		}
+		var payload map[string]string
+		if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if payload["error"] != "forbidden: remote admin is disabled" {
+			t.Errorf("expected error 'forbidden: remote admin is disabled', got %q", payload["error"])
+		}
+	})
+
+	// 4. Contract: 400 Bad Request on Corrupt Config
+	t.Run("400 Bad Request Contract", func(t *testing.T) {
+		tmpPolicy, err := os.CreateTemp("", "bad-policy-*.yaml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(tmpPolicy.Name())
+		_, _ = tmpPolicy.WriteString("internal_rules:\n  - name: ok\n    repo: o/*\n    methods: [GET]\n")
+		_ = tmpPolicy.Close()
+
+		errCfg := &config.Config{
+			Port:             "28280",
+			PolicyPath:       tmpPolicy.Name(),
+			AllowRemoteAdmin: true,
+			AdminToken:       "super-secret-reload-token",
+		}
+		errApp, _ := NewApp(errCfg, "https://api.github.com")
+
+		// Corrupt file
+		_ = os.WriteFile(tmpPolicy.Name(), []byte("invalid: yaml: ["), 0644)
+
+		req := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		req.RemoteAddr = "10.0.0.1:54321"
+		req.Header.Set("Authorization", "Bearer super-secret-reload-token")
+		rec := httptest.NewRecorder()
+		errApp.Handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 Bad Request, got %d", rec.Code)
+		}
+		var payload map[string]string
+		if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if payload["status"] != "error" {
+			t.Errorf("expected status 'error', got %q", payload["status"])
+		}
+		if payload["config"] != "previous configuration preserved" {
+			t.Errorf("expected config 'previous configuration preserved', got %q", payload["config"])
+		}
+		if payload["error"] == "" {
+			t.Errorf("expected non-empty error message")
+		}
+	})
+}
+
+func TestEndToEnd_ConcurrentReloadSerialization(t *testing.T) {
+	policyPath, err := filepath.Abs("../../policy.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Port:             "28280",
+		PolicyPath:       policyPath,
+		AllowRemoteAdmin: true,
+		AdminToken:       "token-concurrent",
+		AuthKeys:         []string{"key1", "key2"},
+	}
+
+	app, err := NewApp(cfg, "https://api.github.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	concurrency := 10
+	done := make(chan int, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+			req.RemoteAddr = "10.0.0.1:54321"
+			req.Header.Set("Authorization", "Bearer token-concurrent")
+			rec := httptest.NewRecorder()
+			app.Handler.ServeHTTP(rec, req)
+			done <- rec.Code
+		}()
+	}
+
+	for i := 0; i < concurrency; i++ {
+		code := <-done
+		if code != http.StatusOK {
+			t.Errorf("expected concurrent reload to return 200 OK, got %d", code)
+		}
 	}
 }

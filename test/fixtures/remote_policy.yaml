@@ -1,0 +1,12 @@
+# Remote test fixture policy
+internal_rules:
+  - name: "Remote internal rule"
+    repo: "remote-org/*"
+    path: "/repos/remote-org/*/contents/**"
+    methods: ["GET", "HEAD"]
+
+external_rules:
+  - name: "Remote external rule"
+    repo: "upstream-org/public-lib"
+    path: "/repos/upstream-org/public-lib/releases/**"
+    methods: ["GET"]

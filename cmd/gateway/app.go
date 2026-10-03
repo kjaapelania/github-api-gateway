@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,17 +24,20 @@ import (
 
 // App manages the lifecycle of the GitHub API Gateway components.
 type App struct {
-	Config     *config.Config
-	Policy     *policy.Policy
-	Pool       *token.Pool
-	Cache      *cache.Cache
-	AuthMgr    *auth.Manager
-	Limiter    *ratelimit.Limiter
-	Proxy      *proxy.Handler
-	Handler    http.Handler
-	StartTime  time.Time
-	TargetHost string
-	mu         sync.RWMutex
+	Config       *config.Config
+	Policy       *policy.Policy
+	PolicySource *policy.PolicySource
+	Fetcher      *policy.Fetcher
+	Reconciler   *policy.Reconciler
+	Pool         *token.Pool
+	Cache        *cache.Cache
+	AuthMgr      *auth.Manager
+	Limiter      *ratelimit.Limiter
+	Proxy        *proxy.Handler
+	Handler      http.Handler
+	StartTime    time.Time
+	TargetHost   string
+	mu           sync.RWMutex
 }
 
 // ReloadResponse represents the outcome of a successful hot-reload.
@@ -38,15 +45,28 @@ type ReloadResponse struct {
 	Status         string `json:"status"`
 	ActiveAuthKeys int    `json:"active_auth_keys"`
 	PolicyRules    int    `json:"policy_rules"`
-	ActiveTokens   int    `json:"active_tokens"`
+	ActiveTokens   int    `json:"active_tokens,omitempty"`
+	Source         string `json:"source,omitempty"`
+	ETag           string `json:"etag,omitempty"`
 }
 
 // NewApp instantiates and wires together all gateway modules into a cohesive HTTP handler.
 func NewApp(cfg *config.Config, targetURL string) (*App, error) {
-	// 1. Load fail-closed enterprise access policy
-	pol, err := policy.LoadFromFile(cfg.PolicyPath)
+	// 1. Load fail-closed enterprise access policy (local file or remote URL)
+	policySource, err := policy.NewPolicySource(cfg.PolicyPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid policy path %s: %w", cfg.PolicyPath, err)
+	}
+
+	fetcher := policy.NewFetcher(nil)
+	data, _, err := fetcher.Fetch(context.Background(), policySource)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load policy from %s: %w", cfg.PolicyPath, err)
+	}
+
+	pol, err := policy.LoadFromBytes(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse policy from %s: %w", cfg.PolicyPath, err)
 	}
 
 	// 2. Token pool with Largest-Remaining selection & 10s cooldown
@@ -80,16 +100,35 @@ func NewApp(cfg *config.Config, targetURL string) (*App, error) {
 	mux.Handle("/", apiHandler)
 
 	app := &App{
-		Config:     cfg,
-		Policy:     pol,
-		Pool:       pool,
-		Cache:      c,
-		AuthMgr:    authMgr,
-		Limiter:    limiter,
-		Proxy:      proxyHandler,
-		Handler:    mux,
-		StartTime:  startTime,
-		TargetHost: targetURL,
+		Config:       cfg,
+		Policy:       pol,
+		PolicySource: policySource,
+		Fetcher:      fetcher,
+		Pool:         pool,
+		Cache:        c,
+		AuthMgr:      authMgr,
+		Limiter:      limiter,
+		Proxy:        proxyHandler,
+		Handler:      mux,
+		StartTime:    startTime,
+		TargetHost:   targetURL,
+	}
+
+	if cfg.PolicyPollInterval > 0 && policySource.IsRemote {
+		reloadCallback := func(data []byte) error {
+			newPolicy, err := policy.LoadFromBytes(data)
+			if err != nil {
+				return err
+			}
+			app.mu.Lock()
+			defer app.mu.Unlock()
+			app.Policy = newPolicy
+			app.Proxy.SetPolicy(newPolicy)
+			return nil
+		}
+		reconciler := policy.NewReconciler(policySource, fetcher, cfg.PolicyPollInterval, reloadCallback, nil)
+		reconciler.Start()
+		app.Reconciler = reconciler
 	}
 
 	reloadHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -102,19 +141,43 @@ func NewApp(cfg *config.Config, targetURL string) (*App, error) {
 			return
 		}
 
-		// Security: Restrict reload endpoint to loopback (127.0.0.1 / ::1)
+		// Security: Restrict reload endpoint to loopback (127.0.0.1 / ::1) unless remote admin is enabled
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
 			host = r.RemoteAddr
 		}
 		ip := net.ParseIP(host)
-		if ip == nil || !ip.IsLoopback() {
+		isLoopback := ip != nil && ip.IsLoopback()
+
+		app.mu.RLock()
+		allowRemote := app.Config.AllowRemoteAdmin
+		adminToken := app.Config.AdminToken
+		app.mu.RUnlock()
+
+		if !isLoopback && !allowRemote {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			_ = json.NewEncoder(w).Encode(map[string]string{
-				"error": "forbidden: reload endpoint restricted to loopback (127.0.0.1 / ::1)",
+				"error": "forbidden: remote admin is disabled",
 			})
 			return
+		}
+
+		// If adminToken is configured, or if caller is remote, authenticate Bearer token
+		if adminToken != "" || !isLoopback {
+			authHeader := r.Header.Get("Authorization")
+			token := ""
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				token = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+			if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) != 1 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"error": "unauthorized",
+				})
+				return
+			}
 		}
 
 		resp, reloadErr := app.Reload()
@@ -150,19 +213,71 @@ func (a *App) Reload() (*ReloadResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to reload config: %w", err)
 	}
-	// Preserve configured policy path if new configuration has default value
-	if a.Config != nil && a.Config.PolicyPath != "" && newCfg.PolicyPath == "policy.yaml" {
-		newCfg.PolicyPath = a.Config.PolicyPath
+	// Preserve configured options if new configuration has defaults or env vars are unset
+	if a.Config != nil {
+		if a.Config.PolicyPath != "" && newCfg.PolicyPath == "policy.yaml" {
+			newCfg.PolicyPath = a.Config.PolicyPath
+		}
+		if os.Getenv("GITHUB_API_GATEWAY_ALLOW_REMOTE_ADMIN") == "" {
+			newCfg.AllowRemoteAdmin = a.Config.AllowRemoteAdmin
+		}
+		if os.Getenv("GITHUB_API_GATEWAY_ADMIN_TOKEN") == "" {
+			newCfg.AdminToken = a.Config.AdminToken
+		}
+		if os.Getenv("GITHUB_API_GATEWAY_AUTH_KEYS") == "" && len(a.Config.AuthKeys) > 0 {
+			newCfg.AuthKeys = a.Config.AuthKeys
+		}
+		if os.Getenv("GITHUB_API_GATEWAY_TOKENS") == "" && len(a.Config.GitHubTokens) > 0 {
+			newCfg.GitHubTokens = a.Config.GitHubTokens
+		}
 	}
 
 	// 2. Validate and compile new policy
-	newPolicy, err := policy.LoadFromFile(newCfg.PolicyPath)
+	newPolicySource, err := policy.NewPolicySource(newCfg.PolicyPath)
+	if err != nil {
+		return nil, fmt.Errorf("invalid policy path %s: %w", newCfg.PolicyPath, err)
+	}
+
+	fetcher := a.Fetcher
+	if fetcher == nil {
+		fetcher = policy.NewFetcher(nil)
+	}
+
+	data, _, err := fetcher.Fetch(context.Background(), newPolicySource)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reload policy from %s: %w", newCfg.PolicyPath, err)
 	}
 
-	// 3. Atomically apply changes without dropping connections
+	newPolicy, err := policy.LoadFromBytes(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reload policy from %s: %w", newCfg.PolicyPath, err)
+	}
+
+	// 3. Restart or update reconciler if needed
+	if a.Reconciler != nil {
+		a.Reconciler.Stop()
+		a.Reconciler = nil
+	}
+	if newCfg.PolicyPollInterval > 0 && newPolicySource.IsRemote {
+		reloadCallback := func(data []byte) error {
+			reloadedPolicy, err := policy.LoadFromBytes(data)
+			if err != nil {
+				return err
+			}
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			a.Policy = reloadedPolicy
+			a.Proxy.SetPolicy(reloadedPolicy)
+			return nil
+		}
+		reconciler := policy.NewReconciler(newPolicySource, fetcher, newCfg.PolicyPollInterval, reloadCallback, nil)
+		reconciler.Start()
+		a.Reconciler = reconciler
+	}
+
+	// 4. Atomically apply changes without dropping connections
 	a.Policy = newPolicy
+	a.PolicySource = newPolicySource
 	a.Config = newCfg
 	a.Proxy.SetPolicy(newPolicy)
 	a.AuthMgr.SetKeys(newCfg.AuthKeys)
@@ -171,10 +286,29 @@ func (a *App) Reload() (*ReloadResponse, error) {
 		a.Limiter.UpdateLimits(newCfg.ClientMaxRPM, newCfg.ClientBurst)
 	}
 
+	var etag string
+	var sourceURI string
+	if a.PolicySource != nil {
+		sourceURI = a.PolicySource.URI
+		etag = a.PolicySource.LastETag
+	}
+
 	return &ReloadResponse{
 		Status:         "reloaded",
 		ActiveAuthKeys: a.AuthMgr.KeyCount(),
 		PolicyRules:    newPolicy.RuleCount(),
 		ActiveTokens:   len(newCfg.GitHubTokens),
+		Source:         sourceURI,
+		ETag:           etag,
 	}, nil
+}
+
+// Close gracefully terminates background tasks like the policy reconciler.
+func (a *App) Close() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.Reconciler != nil {
+		a.Reconciler.Stop()
+		a.Reconciler = nil
+	}
 }

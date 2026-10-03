@@ -2,7 +2,10 @@ package policy
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
+	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -56,4 +59,50 @@ type Rule struct {
 type Config struct {
 	InternalRules []Rule `yaml:"internal_rules"`
 	ExternalRules []Rule `yaml:"external_rules"`
+}
+
+// MaxPolicySizeBytes is the maximum allowed size (10MB) for a remote policy payload.
+const MaxPolicySizeBytes = 10 * 1024 * 1024
+
+// PolicySource represents the origin and cache metadata of the gateway access policy.
+type PolicySource struct {
+	URI          string
+	IsRemote     bool
+	LastETag     string
+	LastHash     [32]byte
+	LastModified time.Time
+	RawContent   []byte
+}
+
+// NewPolicySource initializes a PolicySource and validates the URI.
+func NewPolicySource(uri string) (*PolicySource, error) {
+	if uri == "" {
+		return nil, fmt.Errorf("policy URI must not be empty")
+	}
+
+	isRemote := false
+	if strings.HasPrefix(uri, "http://") || strings.HasPrefix(uri, "https://") {
+		isRemote = true
+		if _, err := url.ParseRequestURI(uri); err != nil {
+			return nil, fmt.Errorf("invalid remote policy URL %q: %w", uri, err)
+		}
+	}
+
+	return &PolicySource{
+		URI:      uri,
+		IsRemote: isRemote,
+	}, nil
+}
+
+// ReconciliationConfig defines the parameters of the pull-based background synchronizer.
+type ReconciliationConfig struct {
+	PollInterval time.Duration
+	Enabled      bool
+	Timeout      time.Duration
+}
+
+// AdminConfig defines administrative perimeter and authentication rules.
+type AdminConfig struct {
+	AllowRemoteAdmin bool
+	AdminToken       string
 }

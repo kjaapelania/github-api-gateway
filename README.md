@@ -127,7 +127,10 @@ All configuration variables use the canonical `GITHUB_API_GATEWAY_` prefix and c
 | `GITHUB_API_GATEWAY_PORT` | `-port` | `28280` | Local port to bind the HTTP server. |
 | `GITHUB_API_GATEWAY_TOKENS` | `-tokens` | *empty* | Comma-separated GitHub tokens (`ghp_`, `github_pat_`, etc.). |
 | `GITHUB_API_GATEWAY_AUTH_KEYS` | `-auth-keys` | *empty* | Comma-separated pre-shared client keys (enables key protection). |
-| `GITHUB_API_GATEWAY_POLICY_PATH` | `-policy` | `policy.yaml` | Path to the enterprise access policy file. |
+| `GITHUB_API_GATEWAY_POLICY_PATH` | `-policy` | `policy.yaml` | Path to access policy file OR remote `http://` / `https://` URL. |
+| `GITHUB_API_GATEWAY_POLICY_POLL_INTERVAL` | — | *empty* | Polling interval for remote policy reconciliation (e.g. `30s`, `1m`). |
+| `GITHUB_API_GATEWAY_ALLOW_REMOTE_ADMIN` | — | `false` | When `true`, enables non-loopback network calls to `/_gateway/reload`. |
+| `GITHUB_API_GATEWAY_ADMIN_TOKEN` | — | *empty* | Bearer token required for `/_gateway/reload` (mandatory if remote admin enabled). |
 | `GITHUB_API_GATEWAY_TOKEN_MIN_REMAINING` | `-min-remaining` | `3000` | Quota reserve floor per token (sidelined when remaining < floor). |
 | `GITHUB_API_GATEWAY_FALLBACK_UNAUTHENTICATED` | `-fallback` | `true` | When tokens are exhausted, proxy unauthenticated instead of failing. |
 | `GITHUB_API_GATEWAY_CACHE_TTL_SECONDS` | `-cache-ttl` | `300` | In-memory ETag response cache time-to-live in seconds. |
@@ -140,6 +143,7 @@ All configuration variables use the canonical `GITHUB_API_GATEWAY_` prefix and c
 ## Enterprise Access Policy (`policy.yaml`)
 
 The gateway follows **Fail-Closed Default Deny**: every request is blocked with `403 Forbidden` unless matched by an explicit rule.
+Policies can be loaded from local files or central remote HTTP/HTTPS URLs (e.g. raw Git URLs or S3 buckets).
 
 ```yaml
 # 1. Internal Company Scope
@@ -181,9 +185,11 @@ curl -s http://localhost:28280/_gateway/status | jq .
 ```
 Returns uptime, active policy rules, cache size, and token pool health with **masked tokens** (e.g. `ghp_...18WX`).
 
-### Zero-Restart Hot-Reload
-Modify `policy.yaml` or change rate limits in `.env`, then trigger a zero-downtime hot-reload without dropping in-flight traffic:
+### Zero-Restart Hot-Reload & Declarative Reconciliation
+Update policy rules or rate limits and apply changes in-memory with zero dropped connections:
 
+- **Autonomous Background Reconciliation (Pull-Based)**:
+  Configure `GITHUB_API_GATEWAY_POLICY_POLL_INTERVAL=30s` with a remote policy URL. The gateway periodically checks upstream via `If-None-Match` (ETag) and SHA-256 hash comparison, performing zero allocations on unchanged state and hot-swapping atomically when updates occur. Corrupt policies safely roll back.
 - **Via Docker Compose (macOS, Linux, Windows)**:
   ```bash
   mise run compose:reload   # docker compose kill -s HUP gateway
@@ -192,11 +198,16 @@ Modify `policy.yaml` or change rate limits in `.env`, then trigger a zero-downti
   ```bash
   mise run bin:reload       # pkill -HUP -f "bin/gateway"
   ```
-- **Via HTTP (Loopback-Restricted)**:
+- **Via HTTP (Push-Based)**:
   ```bash
+  # Local loopback (no token required if ADMIN_TOKEN is unset)
   curl -X POST http://127.0.0.1:28280/_gateway/reload
+
+  # Authenticated remote network reload (requires ALLOW_REMOTE_ADMIN=true)
+  curl -X POST http://<gateway-host>:28280/_gateway/reload \
+    -H "Authorization: Bearer <GITHUB_API_GATEWAY_ADMIN_TOKEN>"
   ```
-*(Note: `POST /_gateway/reload` is restricted to local loopback addresses `127.0.0.1` and `::1` by default to prevent remote tampering).*
+*(Note: To guard against SSRF and unauthorized tampering, non-loopback reload requires `GITHUB_API_GATEWAY_ALLOW_REMOTE_ADMIN=true` and constant-time Bearer token authentication. Startup refuses to boot if remote admin is enabled without a token).*
 
 ---
 

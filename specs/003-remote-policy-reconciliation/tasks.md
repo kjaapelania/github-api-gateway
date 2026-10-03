@@ -9,7 +9,7 @@
 
 **Purpose**: Initialize test fixtures and local mock servers for remote policy verification.
 
-- [ ] T001 Setup remote policy test fixtures and mock server helpers in `test/fixtures/remote_policy.yaml` and `internal/policy/testhelper_test.go`
+- [x] T001 Setup remote policy test fixtures and mock server helpers in `test/fixtures/remote_policy.yaml` and `internal/policy/testhelper_test.go`
 
 ---
 
@@ -19,9 +19,9 @@
 
 **⚠️ CRITICAL**: All user story implementations depend on these foundational structures.
 
-- [ ] T002 [P] Define `PolicySource`, `ReconciliationConfig`, and `AdminConfig` data structures in `internal/policy/model.go` with constraints: "`URI` MUST NOT be empty; if `IsRemote` is true, `URI` MUST parse as a valid `http://` or `https://` URL via `net/url.ParseRequestURI`; response body fetched from remote `URI` MUST NOT exceed 10MB (`10 * 1024 * 1024` bytes)"
-- [ ] T003 [P] Add unit tests for configuration parsing (`PolicyPollInterval`, `AllowRemoteAdmin`, `AdminToken`) in `internal/config/config_test.go`
-- [ ] T004 Implement configuration fields (`PolicyPollInterval`, `AllowRemoteAdmin`, `AdminToken`) and validation parsing in `internal/config/config.go`
+- [x] T002 [P] Define `PolicySource`, `ReconciliationConfig`, and `AdminConfig` data structures in `internal/policy/model.go` with constraints: "`URI` MUST NOT be empty; if `IsRemote` is true, `URI` MUST parse as a valid `http://` or `https://` URL via `net/url.ParseRequestURI`; response body fetched from remote `URI` MUST NOT exceed 10MB (`10 * 1024 * 1024` bytes)"
+- [x] T003 [P] Add unit tests for configuration parsing (`PolicyPollInterval`, `AllowRemoteAdmin`, `AdminToken`) in `internal/config/config_test.go`
+- [x] T004 Implement configuration fields (`PolicyPollInterval`, `AllowRemoteAdmin`, `AdminToken`) and validation parsing in `internal/config/config.go`
 
 **Checkpoint**: Foundation ready - configuration structures and entities available for user stories.
 
@@ -36,13 +36,13 @@
 ### Tests for User Story 1 (TDD) ⚠️
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T005 [P] [US1] Unit tests for `PolicySource` and `Fetcher` (HTTP/HTTPS URL detection, 10s timeout, 10MB body limit, local file fallback) in `internal/policy/fetcher_test.go`
-- [ ] T006 [P] [US1] Integration tests for initial remote policy fetch and fail-closed startup behavior in `cmd/gateway/main_test.go`
+- [x] T005 [P] [US1] Unit tests for `PolicySource` and `Fetcher` (HTTP/HTTPS URL detection, 10s timeout, 10MB body limit, local file fallback) in `internal/policy/fetcher_test.go`
+- [x] T006 [P] [US1] Integration tests for initial remote policy fetch and fail-closed startup behavior in `cmd/gateway/main_test.go`
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] Implement `Fetcher` and `Fetch` method with standard library `net/http.Client`, 10s timeout, and `io.LimitReader(resp.Body, 10<<20)` in `internal/policy/fetcher.go`
-- [ ] T008 [US1] Update `NewApp` and `app.Reload` in `cmd/gateway/app.go` to load policy via `Fetcher` supporting both local file paths and `http://`/`https://` URLs
+- [x] T007 [US1] Implement `Fetcher` and `Fetch` method with standard library `net/http.Client`, 10s timeout, and `io.LimitReader(resp.Body, 10<<20)` in `internal/policy/fetcher.go`
+- [x] T008 [US1] Update `NewApp` and `app.Reload` in `cmd/gateway/app.go` to load policy via `Fetcher` supporting both local file paths and `http://`/`https://` URLs
 
 **Checkpoint**: User Story 1 is functional: gateway boots cleanly from both remote URLs and local files.
 
@@ -57,13 +57,13 @@
 ### Tests for User Story 4 (TDD) ⚠️
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T009 [P] [US4] Unit tests for fail-closed validation ("If `AllowRemoteAdmin == true && AdminToken == ""` configuration is invalid and triggers immediate startup failure") in `internal/config/config_test.go`
-- [ ] T010 [P] [US4] Integration tests for loopback and remote SSRF Bearer token authentication matrix in `cmd/gateway/main_test.go`
+- [x] T009 [P] [US4] Unit tests for fail-closed validation ("If `AllowRemoteAdmin == true && AdminToken == ""` configuration is invalid and triggers immediate startup failure") in `internal/config/config_test.go`
+- [x] T010 [P] [US4] Integration tests for loopback and remote SSRF Bearer token authentication matrix in `cmd/gateway/main_test.go`
 
 ### Implementation for User Story 4
 
-- [ ] T011 [US4] Implement fail-closed startup validation refusing startup when `AllowRemoteAdmin && AdminToken == ""` in `internal/config/config.go`
-- [ ] T012 [US4] Implement constant-time Bearer token verification using `crypto/subtle.ConstantTimeCompare` and SSRF loopback guard ("If `AdminToken != ""` all callers, loopback and remote, must present `Authorization: Bearer <AdminToken>`") in `cmd/gateway/app.go`
+- [x] T011 [US4] Implement fail-closed startup validation refusing startup when `AllowRemoteAdmin && AdminToken == ""` in `internal/config/config.go`
+- [x] T012 [US4] Implement constant-time Bearer token verification using `crypto/subtle.ConstantTimeCompare` and SSRF loopback guard ("If `AdminToken != ""` all callers, loopback and remote, must present `Authorization: Bearer <AdminToken>`") in `cmd/gateway/app.go`
 
 **Checkpoint**: Administrative security perimeter is enforced; fail-closed startup guarantees defense-in-depth.
 
@@ -78,14 +78,14 @@
 ### Tests for User Story 2 (TDD) ⚠️
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T013 [P] [US2] Unit tests for ETag conditional requests (`If-None-Match`), SHA-256 hash comparison, and 304 zero-allocation in `internal/policy/fetcher_test.go`
-- [ ] T014 [P] [US2] Unit tests for `Reconciler` background loop, periodic polling, error rollback, and graceful shutdown in `internal/policy/reconciler_test.go`
+- [x] T013 [P] [US2] Unit tests for ETag conditional requests (`If-None-Match`), SHA-256 hash comparison, and 304 zero-allocation in `internal/policy/fetcher_test.go`
+- [x] T014 [P] [US2] Unit tests for `Reconciler` background loop, periodic polling, error rollback, and graceful shutdown in `internal/policy/reconciler_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Implement conditional ETag caching and SHA-256 hash calculation in `internal/policy/fetcher.go`
-- [ ] T016 [US2] Implement background ticker `Reconciler` with zero-allocation on 304/matching hash and rollback on corrupt YAML in `internal/policy/reconciler.go`
-- [ ] T017 [US2] Wire `Reconciler` lifecycle into `NewApp`, `main.go`, and graceful shutdown in `cmd/gateway/app.go` and `cmd/gateway/main.go`
+- [x] T015 [US2] Implement conditional ETag caching and SHA-256 hash calculation in `internal/policy/fetcher.go`
+- [x] T016 [US2] Implement background ticker `Reconciler` with zero-allocation on 304/matching hash and rollback on corrupt YAML in `internal/policy/reconciler.go`
+- [x] T017 [US2] Wire `Reconciler` lifecycle into `NewApp`, `main.go`, and graceful shutdown in `cmd/gateway/app.go` and `cmd/gateway/main.go`
 
 **Checkpoint**: Background reconciliation loop autonomously keeps gateway synchronized with remote state.
 
@@ -100,11 +100,11 @@
 ### Tests for User Story 3 (TDD) ⚠️
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T018 [P] [US3] Contract and integration tests for `POST /_gateway/reload` matching `contracts/reload-api.json` (200 OK, 400 Bad Request, 401 Unauthorized, 403 Forbidden) in `cmd/gateway/main_test.go`
+- [x] T018 [P] [US3] Contract and integration tests for `POST /_gateway/reload` matching `contracts/reload-api.json` (200 OK, 400 Bad Request, 401 Unauthorized, 403 Forbidden) in `cmd/gateway/main_test.go`
 
 ### Implementation for User Story 3
 
-- [ ] T019 [US3] Update `reloadHandler` in `cmd/gateway/app.go` to return structured JSON telemetry per `contracts/reload-api.json` and serialize concurrent reloads with mutex
+- [x] T019 [US3] Update `reloadHandler` in `cmd/gateway/app.go` to return structured JSON telemetry per `contracts/reload-api.json` and serialize concurrent reloads with mutex
 
 **Checkpoint**: Push-based zero-downtime reload endpoint fully operational and verified against schema.
 
@@ -114,9 +114,9 @@
 
 **Purpose**: End-to-end documentation, operational quickstart verification, and static analysis quality gate.
 
-- [ ] T020 [P] Update documentation in `README.md` and `.env.example` with remote policy, reconciler, and admin token settings
-- [ ] T021 [P] Validate all end-to-end scenarios from `specs/003-remote-policy-reconciliation/quickstart.md`
-- [ ] T022 Run complete verification suite `mise run check-all` and ensure zero race conditions (`-race`)
+- [x] T020 [P] Update documentation in `README.md` and `.env.example` with remote policy, reconciler, and admin token settings
+- [x] T021 [P] Validate all end-to-end scenarios from `specs/003-remote-policy-reconciliation/quickstart.md`
+- [x] T022 Run complete verification suite `mise run check-all` and ensure zero race conditions (`-race`)
 
 ---
 
