@@ -1,0 +1,6 @@
+# Default configuration for running act locally on macOS Apple Silicon
+-P ubuntu-latest=catthehacker/ubuntu:act-22.04
+--container-architecture linux/arm64
+--container-daemon-socket /var/run/docker.sock
+--env GITHUB_ACTIONS=true
+--env CI=true

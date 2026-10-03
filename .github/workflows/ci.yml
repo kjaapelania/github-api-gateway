@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Verification Gate (Go ${{ matrix.go-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.25.8']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          version: 2026.6.5
+
+      - name: Set up Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Verify Code Formatting
+        run: mise run check:fmt
+
+      - name: Static Analysis (go vet)
+        run: mise run check:vet
+
+      - name: Run Tests with Race Detector
+        run: mise run check:test
+
+      - name: Hygiene Check (.env not tracked)
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "ERROR: Security violation: .env file is tracked in git repository!"
+            exit 1
+          fi
+          echo "Repository hygiene check passed: .env is excluded from git."
+
+  container:
+    name: Container Build Verification
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          version: 2026.6.5
+
+      - name: Build Debian Container Image
+        run: mise run docker:build-debian
+
+      - name: Build Alpine Container Image
+        run: mise run docker:build-alpine
+
+      - name: Build Distroless Container Image
+        run: mise run docker:build-distroless
+
