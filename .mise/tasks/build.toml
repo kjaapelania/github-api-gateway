@@ -1,0 +1,33 @@
+["build:local"]
+description = "Compile gateway binary for current host architecture"
+run = "go build -v -o bin/gateway ./cmd/gateway"
+
+["build:linux-x64"]
+description = "Cross-compile static binary for Linux 64-bit Intel/AMD"
+run = "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -trimpath -ldflags='-s -w' -o bin/gateway-linux-x64 ./cmd/gateway"
+
+["build:linux-arm64"]
+description = "Cross-compile static binary for Linux ARM64"
+run = "CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v -trimpath -ldflags='-s -w' -o bin/gateway-linux-arm64 ./cmd/gateway"
+
+["build:darwin-x64"]
+description = "Cross-compile static binary for macOS Intel 64-bit"
+run = "CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -v -trimpath -ldflags='-s -w' -o bin/gateway-darwin-x64 ./cmd/gateway"
+
+["build:darwin-arm64"]
+description = "Compile static binary for macOS Apple Silicon ARM64"
+run = "CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -v -trimpath -ldflags='-s -w' -o bin/gateway-darwin-arm64 ./cmd/gateway"
+
+["build:windows-x64"]
+description = "Cross-compile static binary for Windows 64-bit"
+run = "CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -v -trimpath -ldflags='-s -w' -o bin/gateway-windows-x64.exe ./cmd/gateway"
+
+[build-all]
+description = "Compile release binaries for all 5 target platforms"
+depends = [
+  "build:linux-x64",
+  "build:linux-arm64",
+  "build:darwin-x64",
+  "build:darwin-arm64",
+  "build:windows-x64"
+]

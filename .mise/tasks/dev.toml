@@ -1,0 +1,7 @@
+["dev:fmt"]
+description = "Auto-format all Go source files"
+run = "gofmt -s -w ."
+
+["dev:watch"]
+description = "Event-driven test watcher via watchexec (0% idle CPU)"
+run = "watchexec -e go --clear -- go test -v ./..."

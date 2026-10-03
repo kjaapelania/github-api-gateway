@@ -1,0 +1,11 @@
+["bin:run"]
+description = "Run gateway binary locally"
+run = "go run ./cmd/gateway"
+
+["bin:reload"]
+description = "Hot-reload gateway policy and keys without restart"
+run = "curl -i -X POST http://localhost:${GITHUB_API_GATEWAY_PORT:-8080}/_gateway/reload"
+
+["bin:status"]
+description = "Query gateway status and telemetry"
+run = "curl -s http://localhost:${GITHUB_API_GATEWAY_PORT:-8080}/_gateway/status | jq ."

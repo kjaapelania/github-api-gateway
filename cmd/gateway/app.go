@@ -34,10 +34,10 @@ type App struct {
 
 // ReloadResponse represents the outcome of a successful hot-reload.
 type ReloadResponse struct {
-	Status        string `json:"status"`
-	ActiveAuthKeys int   `json:"active_auth_keys"`
-	PolicyRules   int    `json:"policy_rules"`
-	ActiveTokens  int    `json:"active_tokens"`
+	Status         string `json:"status"`
+	ActiveAuthKeys int    `json:"active_auth_keys"`
+	PolicyRules    int    `json:"policy_rules"`
+	ActiveTokens   int    `json:"active_tokens"`
 }
 
 // NewApp instantiates and wires together all gateway modules into a cohesive HTTP handler.
@@ -156,9 +156,9 @@ func (a *App) Reload() (*ReloadResponse, error) {
 	}
 
 	return &ReloadResponse{
-		Status:        "reloaded",
+		Status:         "reloaded",
 		ActiveAuthKeys: a.AuthMgr.KeyCount(),
-		PolicyRules:   newPolicy.RuleCount(),
-		ActiveTokens:  len(newCfg.GitHubTokens),
+		PolicyRules:    newPolicy.RuleCount(),
+		ActiveTokens:   len(newCfg.GitHubTokens),
 	}, nil
 }

@@ -456,4 +456,3 @@ func TestEndToEnd_ClientRateLimiting(t *testing.T) {
 		t.Errorf("expected independent client-safe to receive 200 OK, got %d", resSafe.StatusCode)
 	}
 }
-

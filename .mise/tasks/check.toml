@@ -1,0 +1,15 @@
+["check:fmt"]
+description = "Verify code formatting without modifying files"
+run = 'test -z "$(gofmt -s -l .)" || (echo "Unformatted files:" && gofmt -s -l . && exit 1)'
+
+["check:vet"]
+description = "Run static analysis"
+run = "go vet ./..."
+
+["check:test"]
+description = "Run tests with race detector"
+run = "go test -race -v ./..."
+
+[check-all]
+description = "Run all verification checks (fmt, vet, test)"
+depends = ["check:fmt", "check:vet", "check:test"]
