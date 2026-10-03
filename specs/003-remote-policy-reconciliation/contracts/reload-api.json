@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReloadAPIContract",
+  "description": "Contract for POST /_gateway/reload administrative endpoint",
+  "endpoint": "/_gateway/reload",
+  "method": "POST",
+  "headers": {
+    "Authorization": {
+      "type": "string",
+      "description": "Bearer token (required when GITHUB_API_GATEWAY_ADMIN_TOKEN is configured or for remote clients)",
+      "example": "Bearer s3cr3t-adm1n-t0k3n"
+    }
+  },
+  "responses": {
+    "200": {
+      "description": "Policy and configuration successfully reloaded",
+      "type": "object",
+      "required": ["status", "active_auth_keys", "policy_rules"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["reloaded", "unchanged"]
+        },
+        "active_auth_keys": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "policy_rules": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        }
+      }
+    },
+    "400": {
+      "description": "Failed to reload (invalid YAML, network fetch failure). Previous configuration is preserved.",
+      "type": "object",
+      "required": ["status", "error", "config"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "error"
+        },
+        "error": {
+          "type": "string"
+        },
+        "config": {
+          "type": "string",
+          "const": "previous configuration preserved"
+        }
+      }
+    },
+    "401": {
+      "description": "Unauthorized - Missing or invalid Bearer token",
+      "type": "object",
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "type": "string",
+          "const": "unauthorized"
+        }
+      }
+    },
+    "403": {
+      "description": "Forbidden - Remote administrative access is disabled",
+      "type": "object",
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "type": "string",
+          "const": "forbidden: remote admin is disabled"
+        }
+      }
+    }
+  }
+}
