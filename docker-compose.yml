@@ -3,7 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: github-api-gateway:latest
+      target: ${GITHUB_API_GATEWAY_CONTAINER_TARGET:-debian}
+    image: github-api-gateway:${GITHUB_API_GATEWAY_CONTAINER_TARGET:-debian}
     container_name: github-api-gateway
     restart: unless-stopped
     ports:
@@ -25,7 +26,7 @@ services:
     volumes:
       - ./policy.yaml:/app/policy.yaml:ro
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/_gateway/status"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/_gateway/status || wget -qO- http://127.0.0.1:8080/_gateway/status || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -1,0 +1,39 @@
+["docker:build-debian"]
+description = "Build Debian-slim container image (default, with bash & curl)"
+run = "docker build --target debian -t github-api-gateway:debian -t github-api-gateway:debian-latest -t github-api-gateway:latest ."
+
+["docker:build-alpine"]
+description = "Build minimal Alpine container image (<10MB)"
+run = "docker build --target alpine -t github-api-gateway:alpine -t github-api-gateway:alpine-latest ."
+
+["docker:build-distroless"]
+description = "Build SOTA hardened zero-trust Distroless container image (<2MB base, 0 CVEs)"
+run = "docker build --target distroless -t github-api-gateway:distroless -t github-api-gateway:distroless-latest ."
+
+["docker:build"]
+description = "Build all container images (Debian, Alpine, Distroless)"
+depends = ["docker:build-debian", "docker:build-alpine", "docker:build-distroless"]
+
+["docker:run"]
+description = "Run default gateway container (Debian)"
+run = "docker run --rm -p 8080:8080 -v $(pwd)/policy.yaml:/app/policy.yaml:ro --env-file .env github-api-gateway:debian"
+
+["docker:exec"]
+description = "Open an interactive bash shell in the running gateway container"
+run = "docker exec -it github-api-gateway bash"
+
+["compose:up"]
+description = "Start gateway service via Docker Compose"
+run = "docker compose up -d --build"
+
+["compose:down"]
+description = "Stop Docker Compose services"
+run = "docker compose down"
+
+["compose:logs"]
+description = "Follow Docker Compose logs"
+run = "docker compose logs -f"
+
+["compose:exec"]
+description = "Open an interactive bash shell in the Compose gateway service"
+run = "docker compose exec gateway bash"
