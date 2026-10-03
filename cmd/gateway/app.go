@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -97,6 +98,21 @@ func NewApp(cfg *config.Config, targetURL string) (*App, error) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error": "method not allowed, use POST to reload",
+			})
+			return
+		}
+
+		// Security: Restrict reload endpoint to loopback (127.0.0.1 / ::1)
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": "forbidden: reload endpoint restricted to loopback (127.0.0.1 / ::1)",
 			})
 			return
 		}

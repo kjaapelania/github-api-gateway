@@ -280,6 +280,15 @@ func TestEndToEnd_Integration(t *testing.T) {
 		if reloadResp.Status != "reloaded" {
 			t.Errorf("expected status 'reloaded', got %s", reloadResp.Status)
 		}
+
+		// 3. POST /_gateway/reload from non-loopback IP returns 403 Forbidden
+		nonLoopbackReq := httptest.NewRequest(http.MethodPost, "/_gateway/reload", nil)
+		nonLoopbackReq.RemoteAddr = "192.168.1.100:54321"
+		rec := httptest.NewRecorder()
+		app.Handler.ServeHTTP(rec, nonLoopbackReq)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("expected 403 Forbidden for non-loopback reload, got %d", rec.Code)
+		}
 	})
 }
 

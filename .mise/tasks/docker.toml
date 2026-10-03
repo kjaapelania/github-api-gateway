@@ -41,3 +41,7 @@ run = "docker compose exec gateway bash"
 ["compose:ps"]
 description = "List running Docker Compose services and status"
 run = "docker compose ps"
+
+["compose:reload"]
+description = "Hot-reload Compose gateway policy via SIGHUP"
+run = "docker compose kill -s HUP gateway"

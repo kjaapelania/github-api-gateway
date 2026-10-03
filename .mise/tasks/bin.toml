@@ -1,10 +1,20 @@
 ["bin:run"]
 description = "Run gateway binary locally"
-run = "go run ./cmd/gateway"
+depends = ["build:local"]
+run = "./bin/gateway"
 
 ["bin:reload"]
-description = "Hot-reload gateway policy and keys without restart"
-run = "curl -i -X POST http://localhost:${GITHUB_API_GATEWAY_PORT:-8080}/_gateway/reload"
+description = "Hot-reload gateway policy via SIGHUP"
+run = '''
+if [ "$(uname -s 2>/dev/null)" = "Linux" ] || [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+  pkill -HUP -f "bin/gateway" || echo "Gateway process not found. Is it running?"
+else
+  echo "Error: Native SIGHUP signal reload is not supported on Windows."
+  echo "• If running locally: restart the gateway (Ctrl+C and rerun)"
+  echo "• If running in Docker: use 'mise run compose:reload'"
+  exit 1
+fi
+'''
 
 ["bin:status"]
 description = "Query gateway status and telemetry"

@@ -182,13 +182,21 @@ curl -s http://localhost:8080/_gateway/status | jq .
 Returns uptime, active policy rules, cache size, and token pool health with **masked tokens** (e.g. `ghp_...18WX`).
 
 ### Zero-Restart Hot-Reload
-Modify `policy.yaml` or change rate limits in `.env`, then reload in-memory without dropping in-flight traffic:
-```bash
-curl -X POST http://localhost:8080/_gateway/reload
-```
-*(Or send `pkill -HUP gateway`)*.
+Modify `policy.yaml` or change rate limits in `.env`, then trigger a zero-downtime hot-reload without dropping in-flight traffic:
 
----
+- **Via Docker Compose (macOS, Linux, Windows)**:
+  ```bash
+  mise run compose:reload   # docker compose kill -s HUP gateway
+  ```
+- **Via Local Host Binary (macOS & Linux)**:
+  ```bash
+  mise run bin:reload       # pkill -HUP -f "bin/gateway"
+  ```
+- **Via HTTP (Loopback-Restricted)**:
+  ```bash
+  curl -X POST http://127.0.0.1:8080/_gateway/reload
+  ```
+*(Note: `POST /_gateway/reload` is restricted to local loopback addresses `127.0.0.1` and `::1` by default to prevent remote tampering).*
 
 ---
 
@@ -216,9 +224,9 @@ mise run dev:fmt                 # Auto-format all Go source files (gofmt -s -w)
 mise run dev:watch               # Event-driven test watcher via watchexec (0% idle CPU)
 
 # Application Lifecycle
-mise run bin:run                 # Run native gateway binary locally
+mise run bin:run                 # Build and run native gateway binary locally
 mise run bin:status              # Query telemetry endpoint
-mise run bin:reload              # Hot-reload policy without restart
+mise run bin:reload              # Hot-reload policy via SIGHUP (macOS/Linux)
 
 # Containers & Docker Compose
 mise run docker:build-debian     # Debian-slim target (default, bash & curl)
@@ -228,6 +236,7 @@ mise run docker:build            # Build all three container flavors
 mise run compose:up              # Start gateway via Docker Compose
 mise run compose:down            # Stop Docker Compose
 mise run compose:ps              # List running Compose services and status
+mise run compose:reload          # Hot-reload Compose gateway policy via SIGHUP
 mise run compose:logs            # Stream container logs
 mise run compose:exec            # Interactive shell in Compose gateway service
 ```
