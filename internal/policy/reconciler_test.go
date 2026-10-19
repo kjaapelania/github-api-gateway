@@ -124,3 +124,56 @@ func TestReconciler_StopIdempotent(t *testing.T) {
 	reconciler.Stop()
 	reconciler.Stop()
 }
+
+func TestReconciler_CorruptYAML_RestoresSourceState(t *testing.T) {
+	initialYAML := []byte("internal_rules:\n  - name: rec-valid\n    repo: org/*\n    methods: [GET]\n")
+	mockServer := NewMockPolicyServer(initialYAML)
+	defer mockServer.Close()
+
+	src, err := policy.NewPolicySource(mockServer.URL + "/policy.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fetcher := policy.NewFetcher(nil)
+	_, _, err = fetcher.Fetch(context.Background(), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validETag := src.LastETag
+	if validETag == "" {
+		t.Fatal("expected initial valid ETag")
+	}
+
+	var reloadAttempts int32
+	reloadFunc := func(data []byte) error {
+		atomic.AddInt32(&reloadAttempts, 1)
+		_, parseErr := policy.LoadFromBytes(data)
+		return parseErr
+	}
+
+	reconciler := policy.NewReconciler(src, fetcher, 30*time.Millisecond, reloadFunc, nil)
+	reconciler.Start()
+	defer reconciler.Stop()
+
+	// Push corrupt YAML to remote server
+	mockServer.SetContent([]byte("invalid: yaml: ["), `"etag-corrupt"`)
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt32(&reloadAttempts) > 0 {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	reconciler.Stop()
+
+	if atomic.LoadInt32(&reloadAttempts) == 0 {
+		t.Fatal("expected reconciler to attempt reload on corrupt YAML")
+	}
+
+	// Because reloadFunc rejected the corrupt YAML, PolicySource.LastETag must be restored to validETag
+	if src.LastETag != validETag {
+		t.Errorf("expected PolicySource.LastETag to remain %q after rejected YAML, got %q", validETag, src.LastETag)
+	}
+}

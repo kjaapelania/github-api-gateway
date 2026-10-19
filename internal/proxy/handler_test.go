@@ -69,11 +69,15 @@ internal_rules:
 
 	var capturedAuth string
 	var capturedUserAgent string
+	var capturedGatewayKey string
+	var capturedRelayKey string
 	resetTimestamp := strconv.FormatInt(time.Now().Add(1*time.Hour).Unix(), 10)
 
 	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedAuth = r.Header.Get("Authorization")
 		capturedUserAgent = r.Header.Get("User-Agent")
+		capturedGatewayKey = r.Header.Get("X-Gateway-Key")
+		capturedRelayKey = r.Header.Get("X-Relay-Key")
 
 		w.Header().Set("X-RateLimit-Limit", "5000")
 		w.Header().Set("X-RateLimit-Remaining", "4950")
@@ -86,9 +90,11 @@ internal_rules:
 	pool := token.NewPool([]string{"ghp_secret_token_123"}, 3000, true)
 	handler := proxy.NewHandler(mockUpstream.URL, pol, pool)
 
-	// Client sends a fake Authorization header that should be stripped & replaced
+	// Client sends a fake Authorization header and gateway keys that should be stripped
 	req := httptest.NewRequest("GET", "/repos/my-org/app", nil)
 	req.Header.Set("Authorization", "Bearer client-fake-token")
+	req.Header.Set("X-Gateway-Key", "secret-gateway-key")
+	req.Header.Set("X-Relay-Key", "secret-relay-key")
 	req.Header.Set("User-Agent", "my-test-agent")
 
 	rec := httptest.NewRecorder()
@@ -101,6 +107,12 @@ internal_rules:
 	expectedAuth := "Bearer ghp_secret_token_123"
 	if capturedAuth != expectedAuth {
 		t.Errorf("expected upstream Authorization=%q, got: %q", expectedAuth, capturedAuth)
+	}
+	if capturedGatewayKey != "" {
+		t.Errorf("expected X-Gateway-Key to be stripped before upstream, got: %q", capturedGatewayKey)
+	}
+	if capturedRelayKey != "" {
+		t.Errorf("expected X-Relay-Key to be stripped before upstream, got: %q", capturedRelayKey)
 	}
 
 	if capturedUserAgent != "my-test-agent" {
@@ -207,5 +219,47 @@ internal_rules:
 	h.ServeHTTP(recB2, reqB)
 	if recB2.Code != http.StatusOK {
 		t.Fatalf("expected 200 for org/b under pol2, got %d", recB2.Code)
+	}
+}
+
+func TestProxyHandler_RevokedTokenSidelinesToHealthyToken(t *testing.T) {
+	pol, _ := policy.LoadFromBytes([]byte(`
+internal_rules:
+  - methods: ["GET"]
+`))
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer ghp_revoked_token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"message":"Bad credentials"}`))
+			return
+		}
+		w.Header().Set("X-RateLimit-Remaining", "4900")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(1*time.Hour).Unix(), 10))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer mockUpstream.Close()
+
+	pool := token.NewPool([]string{"ghp_revoked_token", "ghp_healthy_token"}, 3000, false)
+	// Give ghp_revoked_token slightly higher initial quota so it gets picked first
+	pool.RecordUsage("ghp_healthy_token", 4950, time.Now().Add(1*time.Hour))
+
+	h := proxy.NewHandler(mockUpstream.URL, pol, pool)
+
+	// Request 1 hits upstream with ghp_revoked_token -> 401 Unauthorized, sidelines ghp_revoked_token
+	req1 := httptest.NewRequest("GET", "/repos/org/repo", nil)
+	rec1 := httptest.NewRecorder()
+	h.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on first request with revoked token, got %d", rec1.Code)
+	}
+
+	// Request 2 must automatically select ghp_healthy_token and succeed with 200 OK
+	req2 := httptest.NewRequest("GET", "/repos/org/repo", nil)
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on second request using healthy token, got %d", rec2.Code)
 	}
 }

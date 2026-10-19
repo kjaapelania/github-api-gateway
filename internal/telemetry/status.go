@@ -23,6 +23,22 @@ type StatusResponse struct {
 
 // NewStatusHandler returns an http.Handler that reports runtime health and telemetry.
 func NewStatusHandler(startTime time.Time, pool *token.Pool, c *cache.Cache, activeKeys int, pol *policy.Policy) http.Handler {
+	return NewDynamicStatusHandler(
+		startTime,
+		pool,
+		c,
+		func() int { return activeKeys },
+		func() int {
+			if pol != nil {
+				return pol.RuleCount()
+			}
+			return 0
+		},
+	)
+}
+
+// NewDynamicStatusHandler returns an http.Handler that queries live key and policy rule counts on every request.
+func NewDynamicStatusHandler(startTime time.Time, pool *token.Pool, c *cache.Cache, activeKeysFn func() int, policyRulesFn func() int) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -45,9 +61,14 @@ func NewStatusHandler(startTime time.Time, pool *token.Pool, c *cache.Cache, act
 			cacheCount = c.Count()
 		}
 
+		activeKeys := 0
+		if activeKeysFn != nil {
+			activeKeys = activeKeysFn()
+		}
+
 		policyCount := 0
-		if pol != nil {
-			policyCount = pol.RuleCount()
+		if policyRulesFn != nil {
+			policyCount = policyRulesFn()
 		}
 
 		resp := StatusResponse{

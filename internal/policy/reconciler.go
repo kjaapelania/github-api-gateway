@@ -70,6 +70,11 @@ func (r *Reconciler) reconcileOnce() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	var snap PolicySourceSnapshot
+	if r.source != nil {
+		snap = r.source.Snapshot()
+	}
+
 	data, modified, err := r.fetcher.Fetch(ctx, r.source)
 	if err != nil {
 		r.logger.Error("reconciliation: remote policy fetch failed", "error", err, "uri", r.source.URI)
@@ -83,6 +88,9 @@ func (r *Reconciler) reconcileOnce() {
 
 	if r.reloadFunc != nil {
 		if err := r.reloadFunc(data); err != nil {
+			if r.source != nil {
+				r.source.Restore(snap)
+			}
 			r.logger.Error("reconciliation: policy hot-swap rejected, previous configuration preserved", "error", err)
 			return
 		}

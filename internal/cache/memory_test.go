@@ -230,3 +230,21 @@ func TestMemoryCache_TTLExpiration(t *testing.T) {
 		t.Errorf("expected no If-None-Match after TTL expiration, got: %s", lastIfNoneMatch)
 	}
 }
+
+func TestMemoryCache_MaxEntriesCap(t *testing.T) {
+	c := cache.New(5 * time.Minute)
+	c.SetMaxEntries(3)
+
+	for i := 1; i <= 5; i++ {
+		c.Set("/path/"+string(rune('0'+i)), &cache.Entry{
+			ETag:       `"etag"`,
+			StatusCode: http.StatusOK,
+			Body:       []byte("ok"),
+			CachedAt:   time.Now().Add(time.Duration(i) * time.Millisecond),
+		})
+	}
+
+	if count := c.Count(); count > 3 {
+		t.Fatalf("expected cache entry count to be bounded at <= 3, got %d", count)
+	}
+}

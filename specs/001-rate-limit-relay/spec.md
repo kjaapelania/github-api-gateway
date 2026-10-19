@@ -39,6 +39,7 @@ In an enterprise team environment, the relay must not act as an open proxy or an
   - `path` only (with `methods`): Matches that path across all repositories.
   - `methods` only: Global method allowlist.
 - **Hardcoded Denylist**: `/user`, `/user/**`, `/admin/**`, and `/authorizations/**` are permanently blocked regardless of rules.
+- **Default Policy & Examples for GitHub-Hosted Tool Version Checks**: The default `policy.yaml` and `README.md` policy examples MUST include `external_rules` allowing `GET`/`HEAD` on `/repos/*/*/releases/latest`, `/repos/*/*/releases/tags/*`, and `/repos/*/*/releases/download/**`, since checking the latest release version of GitHub-hosted tools without exhausting the 60 req/hr unauthenticated rate limit is a primary use case for the gateway.
 
 **Why this priority**: Essential security barrier. Prevents unauthorized access to internal private code, blocks mutating methods (`POST`/`DELETE`), and prevents exfiltrating company secrets to external public repos.
 

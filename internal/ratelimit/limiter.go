@@ -83,13 +83,17 @@ func (b *Bucket) updateParameters(ratePerS float64, burst int) {
 	}
 }
 
+// DefaultMaxBuckets is the default maximum number of active client buckets kept in memory.
+const DefaultMaxBuckets = 10000
+
 // Limiter provides per-client token-bucket rate limiting to prevent noisy-neighbor quota exhaustion.
 type Limiter struct {
-	mu       sync.RWMutex
-	buckets  map[string]*Bucket
-	maxRPM   int
-	burst    int
-	ratePerS float64
+	mu         sync.RWMutex
+	buckets    map[string]*Bucket
+	maxBuckets int
+	maxRPM     int
+	burst      int
+	ratePerS   float64
 }
 
 // NewLimiter creates a per-client token-bucket rate limiter.
@@ -104,11 +108,28 @@ func NewLimiter(maxRPM, burst int) *Limiter {
 	}
 
 	return &Limiter{
-		buckets:  make(map[string]*Bucket),
-		maxRPM:   maxRPM,
-		burst:    burst,
-		ratePerS: ratePerS,
+		buckets:    make(map[string]*Bucket),
+		maxBuckets: DefaultMaxBuckets,
+		maxRPM:     maxRPM,
+		burst:      burst,
+		ratePerS:   ratePerS,
 	}
+}
+
+// SetMaxBuckets sets the maximum number of client buckets stored in memory.
+func (l *Limiter) SetMaxBuckets(max int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if max > 0 {
+		l.maxBuckets = max
+	}
+}
+
+// BucketCount returns the current number of active client buckets.
+func (l *Limiter) BucketCount() int {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return len(l.buckets)
 }
 
 // UpdateLimits dynamically updates the maxRPM and burst limits across the limiter and active buckets.
@@ -155,6 +176,9 @@ func (l *Limiter) GetBucket(clientID string) *Bucket {
 	// Double-checked locking
 	b, exists = l.buckets[clientID]
 	if !exists {
+		if l.maxBuckets > 0 && len(l.buckets) >= l.maxBuckets {
+			l.evictOldestBucketLocked()
+		}
 		b = &Bucket{
 			tokens:     float64(l.burst),
 			lastRefill: time.Now(),
@@ -164,6 +188,23 @@ func (l *Limiter) GetBucket(clientID string) *Bucket {
 		l.buckets[clientID] = b
 	}
 	return b
+}
+
+func (l *Limiter) evictOldestBucketLocked() {
+	var oldestKey string
+	var oldestTime time.Time
+	for k, b := range l.buckets {
+		b.mu.Lock()
+		t := b.lastRefill
+		b.mu.Unlock()
+		if oldestKey == "" || t.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = t
+		}
+	}
+	if oldestKey != "" {
+		delete(l.buckets, oldestKey)
+	}
 }
 
 // Allow checks if the given client is allowed to proceed at the current time.
@@ -240,15 +281,7 @@ func extractClientID(r *http.Request) string {
 		}
 	}
 
-	// 3. Check X-Forwarded-For header for reverse proxies / load balancers
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		if clientIP := strings.TrimSpace(parts[0]); clientIP != "" {
-			return clientIP
-		}
-	}
-
-	// 4. Fallback to client IP (in open mode)
+	// 3. Fallback strictly to direct TCP peer IP (never trust spoofable X-Forwarded-For)
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil && ip != "" {
 		return ip

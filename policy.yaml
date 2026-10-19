@@ -30,7 +30,11 @@ external_rules:
       - "hashicorp/*"
     methods: ["GET", "HEAD"]
 
-  # Allow public release downloads across all external repositories
-  - name: "Universal release asset downloads"
-    path: "/repos/*/*/releases/download/**"
+  # Allow checking latest release versions, release tags, and downloading release assets
+  # for GitHub-hosted tools across all external repositories without exhausting the 60 req/hr limit
+  - name: "Universal release version checks and asset downloads"
+    path:
+      - "/repos/*/*/releases/latest"
+      - "/repos/*/*/releases/tags/*"
+      - "/repos/*/*/releases/download/**"
     methods: ["GET", "HEAD"]

@@ -245,6 +245,40 @@ func TestEndToEnd_Integration(t *testing.T) {
 	})
 
 	// -------------------------------------------------------------------------
+	// Scenario 5b: External GitHub-Hosted Tool Release Version Checks (User Story 2)
+	// -------------------------------------------------------------------------
+	t.Run("External Tool Latest Release Version Check Allowed by Default Policy", func(t *testing.T) {
+		for _, allowedPath := range []string{
+			"/repos/cli/cli/releases/latest",
+			"/repos/jdx/mise/releases/tags/v2026.1.0",
+			"/repos/cli/cli/releases/download/v2.60.0/gh_linux_amd64.tar.gz",
+		} {
+			req, _ := http.NewRequest("GET", gatewayServer.URL+allowedPath, nil)
+			req.Header.Set("Authorization", "Bearer key-ci")
+			res, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("req %s failed: %v", allowedPath, err)
+			}
+			res.Body.Close()
+			if res.StatusCode != http.StatusOK {
+				t.Errorf("expected 200 OK for external tool release check %s, got %d", allowedPath, res.StatusCode)
+			}
+		}
+
+		// Non-release endpoints on unapproved external repos must still be blocked (403 Forbidden)
+		req, _ := http.NewRequest("GET", gatewayServer.URL+"/repos/cli/cli/issues", nil)
+		req.Header.Set("Authorization", "Bearer key-ci")
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("req failed: %v", err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 Forbidden for non-release endpoint /repos/cli/cli/issues, got %d", res.StatusCode)
+		}
+	})
+
+	// -------------------------------------------------------------------------
 	// Scenario 6: Zero-Restart Hot-Reloading (POST /_gateway/reload)
 	// -------------------------------------------------------------------------
 	t.Run("Zero Restart Hot Reloading", func(t *testing.T) {
@@ -369,6 +403,47 @@ internal_rules:
 		t.Fatalf("expected server to safely maintain previous configuration after failed reload, got %d", res1Repeat.StatusCode)
 	}
 	res1Repeat.Body.Close()
+
+	// 5. Write valid policy with 2 rules and update AUTH_KEYS to 3 keys, then reload and verify /_gateway/status reflects live counts
+	updatedPolicyYAML := `
+internal_rules:
+  - name: "rule-1"
+    repo: "org/initial"
+    methods: ["GET"]
+  - name: "rule-2"
+    repo: "org/second"
+    methods: ["GET"]
+`
+	_ = os.WriteFile(tmpPolicy.Name(), []byte(updatedPolicyYAML), 0644)
+	t.Setenv("GITHUB_API_GATEWAY_POLICY_PATH", tmpPolicy.Name())
+	t.Setenv("GITHUB_API_GATEWAY_AUTH_KEYS", "key-v1,key-v2,key-v3")
+
+	reloadRes2, err := client.Post(server.URL+"/_gateway/reload", "application/json", nil)
+	if err != nil {
+		t.Fatalf("reload2 post failed: %v", err)
+	}
+	reloadRes2.Body.Close()
+	if reloadRes2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK on valid reload, got %d", reloadRes2.StatusCode)
+	}
+
+	statusRes, err := client.Get(server.URL + "/_gateway/status")
+	if err != nil {
+		t.Fatalf("status get failed: %v", err)
+	}
+	defer statusRes.Body.Close()
+
+	var statusPayload struct {
+		ActiveRelayKeys int `json:"active_relay_keys"`
+		PolicyRules     int `json:"policy_rules"`
+	}
+	_ = json.NewDecoder(statusRes.Body).Decode(&statusPayload)
+	if statusPayload.ActiveRelayKeys != 3 {
+		t.Errorf("expected /_gateway/status active_relay_keys=3 after hot-reload, got %d", statusPayload.ActiveRelayKeys)
+	}
+	if statusPayload.PolicyRules != 2 {
+		t.Errorf("expected /_gateway/status policy_rules=2 after hot-reload, got %d", statusPayload.PolicyRules)
+	}
 }
 
 func TestEndToEnd_ClientRateLimiting(t *testing.T) {
@@ -955,5 +1030,95 @@ func TestEndToEnd_ConcurrentReloadSerialization(t *testing.T) {
 		if code != http.StatusOK {
 			t.Errorf("expected concurrent reload to return 200 OK, got %d", code)
 		}
+	}
+}
+
+func TestEndToEnd_ConcurrentReloadAndReconciler_NoDeadlock(t *testing.T) {
+	var tick int32
+	mockPolicyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&tick, 1)
+		w.Header().Set("Content-Type", "application/yaml")
+		w.WriteHeader(http.StatusOK)
+		if n%2 == 0 {
+			_, _ = w.Write([]byte("internal_rules:\n  - name: r-even\n    repo: even/*\n    methods: [GET]\n"))
+		} else {
+			_, _ = w.Write([]byte("internal_rules:\n  - name: r-odd\n    repo: odd/*\n    methods: [GET]\n"))
+		}
+	}))
+	defer mockPolicyServer.Close()
+
+	policyURL := mockPolicyServer.URL + "/policy.yaml"
+	t.Setenv("GITHUB_API_GATEWAY_POLICY_PATH", policyURL)
+	t.Setenv("GITHUB_API_GATEWAY_POLICY_POLL_INTERVAL", "2ms")
+
+	cfg := &config.Config{
+		Port:               "28280",
+		PolicyPath:         policyURL,
+		PolicyPollInterval: 2 * time.Millisecond,
+		AuthKeys:           []string{"key1"},
+	}
+
+	app, err := NewApp(cfg, "https://api.github.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < 15; i++ {
+			time.Sleep(2 * time.Millisecond)
+			if _, reloadErr := app.Reload(); reloadErr != nil {
+				done <- reloadErr
+				return
+			}
+		}
+		done <- nil
+	}()
+
+	select {
+	case reloadErr := <-done:
+		if reloadErr != nil {
+			t.Fatalf("unexpected error during concurrent reload: %v", reloadErr)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("DEADLOCK detected: concurrent App.Reload() and Reconciler hung for >3s")
+	}
+}
+
+func TestEndToEnd_ReloadPreservesCLIOverrides(t *testing.T) {
+	policyPath, err := filepath.Abs("../../policy.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Port:              "28280",
+		PolicyPath:        policyPath,
+		TokenMinRemaining: 1500,
+		ClientMaxRPM:      240,
+		ClientBurst:       25,
+	}
+
+	app, err := NewApp(cfg, "https://api.github.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+
+	app.ApplyOverrides = func(c *config.Config) {
+		c.PolicyPath = policyPath
+		c.TokenMinRemaining = 1500
+		c.ClientMaxRPM = 240
+		c.ClientBurst = 25
+	}
+
+	if _, err := app.Reload(); err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+
+	if app.Config.ClientMaxRPM != 240 || app.Config.ClientBurst != 25 || app.Config.TokenMinRemaining != 1500 {
+		t.Errorf("expected CLI overrides preserved after Reload(), got ClientMaxRPM=%d ClientBurst=%d TokenMinRemaining=%d",
+			app.Config.ClientMaxRPM, app.Config.ClientBurst, app.Config.TokenMinRemaining)
 	}
 }

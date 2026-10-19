@@ -111,3 +111,14 @@
 - [x] **T024 [RateLimit]**: Add `ClientMaxRPM` and `ClientBurst` to `internal/config/config.go` with unit tests in `internal/config/config_test.go`.
 - [x] **T025 [RateLimit]**: Wire `Limiter` into `cmd/gateway/app.go` (`Auth -> RateLimiter -> Cache -> Proxy`), wire CLI flags `-client-max-rpm` and `-client-burst` into `cmd/gateway/main.go`, and add E2E integration test `TestEndToEnd_ClientRateLimiting` in `cmd/gateway/main_test.go`.
 
+---
+
+## Phase 12: Convergence
+
+- [x] T026 Update default `policy.yaml` and `README.md` `external_rules` to include `/repos/*/*/releases/latest`, `/repos/*/*/releases/tags/*`, and `/repos/*/*/releases/download/**` for GitHub-hosted tool version checks, with integration test assertions in `cmd/gateway/main_test.go` per US2 (missing)
+- [x] T027 Handle upstream `401 Unauthorized` by marking revoked/expired tokens ineligible in `internal/token/pool.go` and `internal/proxy/handler.go`, and update `nextProbeTime` inside `Pool.Acquire()` to prevent probe stampedes, with unit tests in `internal/token/pool_test.go` and `internal/proxy/handler_test.go` per US4/FR-004/FR-005 (partial)
+- [x] T028 Query live `active_relay_keys` and `policy_rules` dynamically in `GET /_gateway/status` (`internal/telemetry/status.go` and `cmd/gateway/app.go`) so hot-reloads are reflected accurately, with tests in `cmd/gateway/main_test.go` per US7/FR-014 (partial)
+- [x] T029 Reload updated `.env` values on `App.Reload()` without polluting process environment in `internal/config/config.go` while preserving CLI flag overrides in `cmd/gateway/app.go` and `cmd/gateway/main.go`, with tests in `internal/config/config_test.go` and `cmd/gateway/main_test.go` per US8/FR-015/FR-018 (partial)
+
+
+

@@ -1,6 +1,8 @@
 package policy
 
 import (
+	"net/url"
+	"path"
 	"strings"
 )
 
@@ -20,7 +22,10 @@ func (p *Policy) RuleCount() int {
 // Evaluate evaluates an incoming HTTP request against the policy and returns whether it is allowed.
 func (p *Policy) Evaluate(method, urlPath string) (bool, DenialReason) {
 	upperMethod := strings.ToUpper(strings.TrimSpace(method))
-	cleanPath := cleanURLPath(urlPath)
+	cleanPath, ok := cleanURLPath(urlPath)
+	if !ok {
+		return false, ReasonDefaultDeny
+	}
 
 	// 1. Hardcoded Denylist Check (Unconditionally Blocked)
 	if isHardcodedDenylisted(cleanPath) {
@@ -102,18 +107,31 @@ func isHardcodedDenylisted(path string) bool {
 	return false
 }
 
-func cleanURLPath(path string) string {
-	if path == "" {
-		return "/"
-	}
-	if !strings.HasPrefix(path, "/") {
-		return "/" + path
+func cleanURLPath(rawPath string) (string, bool) {
+	if rawPath == "" {
+		return "/", true
 	}
 	// Strip query parameters if any were passed in path
-	if idx := strings.Index(path, "?"); idx != -1 {
-		return path[:idx]
+	if idx := strings.Index(rawPath, "?"); idx != -1 {
+		rawPath = rawPath[:idx]
 	}
-	return path
+
+	unescaped, err := url.PathUnescape(rawPath)
+	if err != nil {
+		return "", false
+	}
+	if !strings.HasPrefix(unescaped, "/") {
+		unescaped = "/" + unescaped
+	}
+
+	// Fail-closed on any '..' path traversal segment before cleaning
+	for _, seg := range strings.Split(unescaped, "/") {
+		if seg == ".." || seg == "." {
+			return path.Clean(unescaped), false
+		}
+	}
+
+	return path.Clean(unescaped), true
 }
 
 func extractRepoFromPath(path string) string {

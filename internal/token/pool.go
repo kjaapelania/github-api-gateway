@@ -120,6 +120,11 @@ func (p *Pool) Acquire() (string, error) {
 	}
 
 	if bestToken != nil {
+		// If the selected token was chosen as an inline probe (remaining < minRemaining),
+		// immediately set nextProbeTime so concurrent callers don't stampede-probe it.
+		if bestToken.remaining < p.minRemaining {
+			bestToken.nextProbeTime = now.Add(ProbeCooldown)
+		}
 		return bestToken.token, nil
 	}
 
@@ -129,6 +134,23 @@ func (p *Pool) Acquire() (string, error) {
 	}
 
 	return "", errors.New("all GitHub tokens in pool are exhausted below threshold")
+}
+
+// MarkInvalid sidelines a token that returned 401 Unauthorized from upstream GitHub
+// so healthy tokens in the pool are selected instead.
+func (p *Pool) MarkInvalid(tokenStr string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := time.Now()
+	for _, t := range p.tokens {
+		if t.token == tokenStr {
+			t.remaining = 0
+			t.resetTime = now.Add(1 * time.Hour)
+			t.nextProbeTime = now.Add(1 * time.Hour)
+			return
+		}
+	}
 }
 
 // RecordUsage updates a token's live quota and reset timestamp from GitHub response headers.

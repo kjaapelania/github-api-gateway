@@ -138,6 +138,46 @@ func TestLoadDotEnv_PreservesExistingEnv(t *testing.T) {
 	}
 }
 
+func TestLoadDotEnv_HotReloadUpdatesValues(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", ".env-reload-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	_ = os.Unsetenv("GITHUB_API_GATEWAY_TOKENS")
+	_ = os.Unsetenv("GITHUB_API_GATEWAY_CLIENT_MAX_RPM")
+
+	// Initial .env content
+	if err := os.WriteFile(tmpFile.Name(), []byte("GITHUB_API_GATEWAY_TOKENS=ghp_v1\nGITHUB_API_GATEWAY_CLIENT_MAX_RPM=60\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg1, err := config.LoadFile(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg1.GitHubTokens) != 1 || cfg1.GitHubTokens[0] != "ghp_v1" || cfg1.ClientMaxRPM != 60 {
+		t.Fatalf("unexpected initial dotenv load: %+v", cfg1)
+	}
+
+	// Modify .env file to simulate operator editing .env before hot-reload
+	if err := os.WriteFile(tmpFile.Name(), []byte("GITHUB_API_GATEWAY_TOKENS=ghp_v1,ghp_v2\nGITHUB_API_GATEWAY_CLIENT_MAX_RPM=180\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg2, err := config.LoadFile(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg2.GitHubTokens) != 2 || cfg2.GitHubTokens[1] != "ghp_v2" {
+		t.Errorf("expected hot-reloaded .env to update GitHubTokens to [ghp_v1 ghp_v2], got: %v", cfg2.GitHubTokens)
+	}
+	if cfg2.ClientMaxRPM != 180 {
+		t.Errorf("expected hot-reloaded .env to update ClientMaxRPM to 180, got: %d", cfg2.ClientMaxRPM)
+	}
+}
+
 func TestLoadRemotePolicyAndAdminConfig(t *testing.T) {
 	// 1. Defaults
 	t.Setenv("GITHUB_API_GATEWAY_POLICY_POLL_INTERVAL", "")

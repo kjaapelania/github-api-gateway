@@ -125,35 +125,54 @@ func TestLimiter_XGatewayKeyHeader(t *testing.T) {
 	}
 }
 
-func TestLimiter_XForwardedForHeader(t *testing.T) {
+func TestLimiter_UntrustedXForwardedForIgnored(t *testing.T) {
 	limiter := ratelimit.NewLimiter(60, 1)
 	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
+	// 1st request from RemoteAddr 192.0.2.10:1234 with spoofed X-Forwarded-For
 	req1 := httptest.NewRequest("GET", "/test", nil)
-	req1.Header.Set("X-Forwarded-For", "203.0.113.195, 70.41.3.18")
+	req1.RemoteAddr = "192.0.2.10:1234"
+	req1.Header.Set("X-Forwarded-For", "203.0.113.1")
 	rec1 := httptest.NewRecorder()
 	handler.ServeHTTP(rec1, req1)
 	if rec1.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK for first request, got %d", rec1.Code)
 	}
 
+	// 2nd request from the SAME RemoteAddr 192.0.2.10:5678 trying to bypass rate limit by spoofing a different X-Forwarded-For
 	req2 := httptest.NewRequest("GET", "/test", nil)
-	req2.Header.Set("X-Forwarded-For", "203.0.113.195, 70.41.3.18")
+	req2.RemoteAddr = "192.0.2.10:5678"
+	req2.Header.Set("X-Forwarded-For", "198.51.100.99")
 	rec2 := httptest.NewRecorder()
 	handler.ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429 Too Many Requests for second request with same client IP, got %d", rec2.Code)
+		t.Fatalf("expected 429 Too Many Requests when spoofing X-Forwarded-For from same peer IP, got %d", rec2.Code)
 	}
 
-	// Different forwarded IP should succeed
+	// Request from a genuinely different peer IP should succeed
 	req3 := httptest.NewRequest("GET", "/test", nil)
-	req3.Header.Set("X-Forwarded-For", "198.51.100.1")
+	req3.RemoteAddr = "192.0.2.20:1234"
 	rec3 := httptest.NewRecorder()
 	handler.ServeHTTP(rec3, req3)
 	if rec3.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for different client IP, got %d", rec3.Code)
+		t.Fatalf("expected 200 OK for different peer IP, got %d", rec3.Code)
+	}
+}
+
+func TestLimiter_MaxBucketsCap(t *testing.T) {
+	limiter := ratelimit.NewLimiter(60, 5)
+	limiter.SetMaxBuckets(3)
+
+	limiter.Allow("client-1")
+	limiter.Allow("client-2")
+	limiter.Allow("client-3")
+	limiter.Allow("client-4")
+	limiter.Allow("client-5")
+
+	if count := limiter.BucketCount(); count > 3 {
+		t.Fatalf("expected bucket count to be bounded at <= 3, got %d", count)
 	}
 }
 

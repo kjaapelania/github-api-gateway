@@ -1,6 +1,6 @@
 # GitHub API Gateway
 
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)](https://go.dev)
+[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev)
 [![Zero External Dependencies](https://img.shields.io/badge/Dependencies-Standard%20Library%20Only-success)](https://pkg.go.dev/std)
 [![Tests](https://img.shields.io/badge/Tests-100%25%20Passing%20(Race%20Clean)-brightgreen)](https://github.com)
 [![Enterprise Policy](https://img.shields.io/badge/Security-Fail--Closed%20Default%20Deny-blue)](policy.yaml)
@@ -164,9 +164,13 @@ external_rules:
       - "hashicorp/*"
     methods: ["GET", "HEAD"]
 
-  # Global release asset download rule
-  - name: "Universal release asset downloads"
-    path: "/repos/*/*/releases/download/**"
+  # Global rule for checking latest release versions and downloading release assets
+  # of GitHub-hosted tools without exhausting the 60 req/hr unauthenticated limit
+  - name: "Universal release version checks and asset downloads"
+    path:
+      - "/repos/*/*/releases/latest"
+      - "/repos/*/*/releases/tags/*"
+      - "/repos/*/*/releases/download/**"
     methods: ["GET", "HEAD"]
 ```
 

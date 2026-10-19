@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -66,12 +67,43 @@ const MaxPolicySizeBytes = 10 * 1024 * 1024
 
 // PolicySource represents the origin and cache metadata of the gateway access policy.
 type PolicySource struct {
+	mu           sync.RWMutex
 	URI          string
 	IsRemote     bool
 	LastETag     string
 	LastHash     [32]byte
 	LastModified time.Time
 	RawContent   []byte
+}
+
+// PolicySourceSnapshot holds a rollback snapshot of PolicySource cache metadata.
+type PolicySourceSnapshot struct {
+	LastETag     string
+	LastHash     [32]byte
+	LastModified time.Time
+	RawContent   []byte
+}
+
+// Snapshot captures the current cache metadata of the PolicySource under read lock.
+func (s *PolicySource) Snapshot() PolicySourceSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return PolicySourceSnapshot{
+		LastETag:     s.LastETag,
+		LastHash:     s.LastHash,
+		LastModified: s.LastModified,
+		RawContent:   s.RawContent,
+	}
+}
+
+// Restore rolls back the cache metadata of the PolicySource under write lock.
+func (s *PolicySource) Restore(snap PolicySourceSnapshot) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.LastETag = snap.LastETag
+	s.LastHash = snap.LastHash
+	s.LastModified = snap.LastModified
+	s.RawContent = snap.RawContent
 }
 
 // NewPolicySource initializes a PolicySource and validates the URI.

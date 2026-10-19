@@ -101,6 +101,35 @@ internal_rules:
 	}
 }
 
+func TestPathTraversalProtection(t *testing.T) {
+	yamlDoc := `
+internal_rules:
+  - name: "ci-tools-contents"
+    repo: "my-company/ci-tools"
+    path: "/repos/my-company/ci-tools/contents/**"
+    methods: ["GET"]
+`
+	pol, err := policy.LoadFromBytes([]byte(yamlDoc))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	traversalPaths := []string{
+		"/repos/my-company/ci-tools/contents/../../../user",
+		"/repos/my-company/ci-tools/contents/..%2F..%2F..%2Fuser",
+		"/repos/my-company/ci-tools/contents/%2e%2e/%2e%2e/%2e%2e/admin",
+		"/repos/my-company/ci-tools/contents/../../secret-repo/contents/secret.txt",
+		"/repos/my-company/ci-tools/../secret-repo/contents/file",
+	}
+
+	for _, p := range traversalPaths {
+		allowed, _ := pol.Evaluate("GET", p)
+		if allowed {
+			t.Errorf("expected path traversal %q to be denied, but was allowed", p)
+		}
+	}
+}
+
 func TestDefaultDeny(t *testing.T) {
 	yamlDoc := `
 internal_rules:

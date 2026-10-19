@@ -17,19 +17,34 @@ type Entry struct {
 	CachedAt   time.Time
 }
 
+// DefaultMaxEntries is the default maximum number of cached ETag responses stored in memory.
+const DefaultMaxEntries = 10000
+
 // Cache provides a thread-safe in-memory ETag response cache for 0-quota revalidations.
 type Cache struct {
-	mu      sync.RWMutex
-	entries map[string]*Entry
-	ttl     time.Duration
+	mu         sync.RWMutex
+	entries    map[string]*Entry
+	ttl        time.Duration
+	maxEntries int
 }
 
 // New creates a new in-memory response cache with the specified TTL.
 func New(ttl time.Duration) *Cache {
 	return &Cache{
-		entries: make(map[string]*Entry),
-		ttl:     ttl,
+		entries:    make(map[string]*Entry),
+		ttl:        ttl,
+		maxEntries: DefaultMaxEntries,
 	}
+}
+
+// SetMaxEntries sets the maximum number of cache entries retained in memory.
+func (c *Cache) SetMaxEntries(max int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if max <= 0 {
+		max = DefaultMaxEntries
+	}
+	c.maxEntries = max
 }
 
 // Get retrieves an entry if it exists and has not expired.
@@ -53,11 +68,43 @@ func (c *Cache) Get(key string) (*Entry, bool) {
 	return entry, true
 }
 
-// Set stores or updates an entry in the cache.
+// Set stores or updates an entry in the cache, evicting expired or oldest entries if at capacity.
 func (c *Cache) Set(key string, entry *Entry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if _, exists := c.entries[key]; !exists && c.maxEntries > 0 && len(c.entries) >= c.maxEntries {
+		c.evictLocked(time.Now())
+	}
 	c.entries[key] = entry
+}
+
+func (c *Cache) evictLocked(now time.Time) {
+	// First sweep any expired entries
+	if c.ttl > 0 {
+		for k, e := range c.entries {
+			if now.Sub(e.CachedAt) > c.ttl {
+				delete(c.entries, k)
+			}
+		}
+	}
+	if len(c.entries) < c.maxEntries {
+		return
+	}
+	// Otherwise evict the oldest entry
+	var oldestKey string
+	var oldestTime time.Time
+	first := true
+	for k, e := range c.entries {
+		if first || e.CachedAt.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = e.CachedAt
+			first = false
+		}
+	}
+	if !first {
+		delete(c.entries, oldestKey)
+	}
 }
 
 // Count returns the number of active, unexpired entries in the cache.

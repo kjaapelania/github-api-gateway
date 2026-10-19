@@ -45,6 +45,8 @@ func (f *Fetcher) fetchLocal(src *PolicySource) ([]byte, bool, error) {
 	}
 
 	hash := sha256.Sum256(data)
+	src.mu.Lock()
+	defer src.mu.Unlock()
 	if src.LastHash == hash && len(src.RawContent) > 0 {
 		return nil, false, nil
 	}
@@ -61,8 +63,12 @@ func (f *Fetcher) fetchRemote(ctx context.Context, src *PolicySource) ([]byte, b
 		return nil, false, fmt.Errorf("failed to create remote policy request: %w", err)
 	}
 
-	if src.LastETag != "" {
-		req.Header.Set("If-None-Match", src.LastETag)
+	src.mu.RLock()
+	lastETag := src.LastETag
+	src.mu.RUnlock()
+
+	if lastETag != "" {
+		req.Header.Set("If-None-Match", lastETag)
 	}
 
 	resp, err := f.client.Do(req)
@@ -91,6 +97,8 @@ func (f *Fetcher) fetchRemote(ctx context.Context, src *PolicySource) ([]byte, b
 	}
 
 	hash := sha256.Sum256(data)
+	src.mu.Lock()
+	defer src.mu.Unlock()
 	if src.LastHash == hash && len(src.RawContent) > 0 {
 		return nil, false, nil
 	}

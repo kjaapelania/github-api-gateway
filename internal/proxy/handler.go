@@ -94,7 +94,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// Ensure prefix path is preserved
 			if h.target.Path != "" && h.target.Path != "/" {
 				req.URL.Path = singleJoiningSlash(h.target.Path, req.URL.Path)
+				if req.URL.RawPath != "" {
+					req.URL.RawPath = singleJoiningSlash(h.target.Path, req.URL.RawPath)
+				}
 			}
+
+			// Strip internal gateway authentication headers so they never leak upstream
+			req.Header.Del("X-Gateway-Key")
+			req.Header.Del("X-Relay-Key")
 
 			// Token injection & stripping client auth
 			if tok != "" {
@@ -104,8 +111,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
-			// Record rate limit headers if present
+			// Record rate limit headers or sideline revoked/expired tokens
 			if h.pool != nil && tok != "" {
+				if resp.StatusCode == http.StatusUnauthorized {
+					h.pool.MarkInvalid(tok)
+					return nil
+				}
+
 				remainingStr := resp.Header.Get("X-RateLimit-Remaining")
 				resetStr := resp.Header.Get("X-RateLimit-Reset")
 

@@ -14,10 +14,15 @@ import (
 	"github-api-gateway/internal/config"
 )
 
+// version can be overridden at link time via -ldflags="-X main.version=v1.0.0"
+var version = "dev"
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
+	versionFlag := flag.Bool("version", false, "Print version and exit")
+	healthcheckFlag := flag.Bool("healthcheck", false, "Perform an HTTP health check against the local gateway and exit (for distroless containers)")
 	portFlag := flag.String("port", "", "Port to bind locally (overrides GITHUB_API_GATEWAY_PORT)")
 	policyFlag := flag.String("policy", "", "Path to policy.yaml (overrides GITHUB_API_GATEWAY_POLICY_PATH)")
 	authKeysFlag := flag.String("auth-keys", "", "Comma-separated gateway auth keys (overrides GITHUB_API_GATEWAY_AUTH_KEYS)")
@@ -30,7 +35,10 @@ func main() {
 	clientBurstFlag := flag.Int("client-burst", -1, "Per-client token bucket burst capacity (overrides GITHUB_API_GATEWAY_CLIENT_BURST)")
 	flag.Parse()
 
-	slog.Info("starting github-api-gateway")
+	if *versionFlag {
+		os.Stdout.WriteString("github-api-gateway " + version + "\n")
+		os.Exit(0)
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -38,37 +46,52 @@ func main() {
 		os.Exit(1)
 	}
 
-	// CLI flags override environment variables and .env
-	if *portFlag != "" {
-		cfg.Port = *portFlag
+	// CLI flags override environment variables and .env across initial load and hot-reloads
+	applyFlags := func(c *config.Config) {
+		if *portFlag != "" {
+			c.Port = *portFlag
+		}
+		if *policyFlag != "" {
+			c.PolicyPath = *policyFlag
+		}
+		if *authKeysFlag != "" {
+			c.AuthKeys = splitCSV(*authKeysFlag)
+		}
+		if *tokensFlag != "" {
+			c.GitHubTokens = splitCSV(*tokensFlag)
+		}
+		if *minRemainingFlag >= 0 {
+			c.TokenMinRemaining = *minRemainingFlag
+		}
+		if *fallbackFlag != "" {
+			c.FallbackUnauthenticated = (*fallbackFlag == "true" || *fallbackFlag == "1")
+		}
+		if *cacheTTLFlag >= 0 {
+			c.CacheTTLSeconds = *cacheTTLFlag
+		}
+		if *targetURLFlag != "" {
+			c.TargetURL = *targetURLFlag
+		}
+		if *clientMaxRPMFlag >= 0 {
+			c.ClientMaxRPM = *clientMaxRPMFlag
+		}
+		if *clientBurstFlag >= 0 {
+			c.ClientBurst = *clientBurstFlag
+		}
 	}
-	if *policyFlag != "" {
-		cfg.PolicyPath = *policyFlag
+	applyFlags(cfg)
+
+	if *healthcheckFlag {
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, hcErr := client.Get("http://127.0.0.1:" + cfg.Port + "/_gateway/status")
+		if hcErr != nil || resp.StatusCode != http.StatusOK {
+			os.Exit(1)
+		}
+		_ = resp.Body.Close()
+		os.Exit(0)
 	}
-	if *authKeysFlag != "" {
-		cfg.AuthKeys = splitCSV(*authKeysFlag)
-	}
-	if *tokensFlag != "" {
-		cfg.GitHubTokens = splitCSV(*tokensFlag)
-	}
-	if *minRemainingFlag >= 0 {
-		cfg.TokenMinRemaining = *minRemainingFlag
-	}
-	if *fallbackFlag != "" {
-		cfg.FallbackUnauthenticated = (*fallbackFlag == "true" || *fallbackFlag == "1")
-	}
-	if *cacheTTLFlag >= 0 {
-		cfg.CacheTTLSeconds = *cacheTTLFlag
-	}
-	if *targetURLFlag != "" {
-		cfg.TargetURL = *targetURLFlag
-	}
-	if *clientMaxRPMFlag >= 0 {
-		cfg.ClientMaxRPM = *clientMaxRPMFlag
-	}
-	if *clientBurstFlag >= 0 {
-		cfg.ClientBurst = *clientBurstFlag
-	}
+
+	slog.Info("starting github-api-gateway", "version", version)
 
 	targetURL := cfg.TargetURL
 	if targetURL == "" {
@@ -80,6 +103,7 @@ func main() {
 		slog.Error("failed to initialize application", "error", err)
 		os.Exit(1)
 	}
+	app.ApplyOverrides = applyFlags
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

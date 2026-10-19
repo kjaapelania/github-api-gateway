@@ -171,3 +171,13 @@
 5. Complete Phase 5 (US2: Declarative Pull Reconciler) → Test independently.
 6. Complete Phase 6 (US3: Authenticated Push Reload) → Test independently.
 7. Complete Phase 7 (Polish, Docs & `mise run check-all`).
+
+## Phase 8: Convergence
+
+- [x] T023 Strip internal gateway auth headers (`X-Gateway-Key`, `X-Relay-Key`) in `internal/proxy/handler.go` and add unit tests in `internal/proxy/handler_test.go` per Constitution IV (contradicts)
+- [x] T024 Canonicalize URL paths and reject `..` path traversal segments in `internal/policy/evaluator.go` and add unit tests in `internal/policy/policy_test.go` per Constitution V (contradicts)
+- [x] T025 Fix ABBA deadlock between `App.Reload()` and `Reconciler.Stop()` in `cmd/gateway/app.go` and add concurrent reload+reconciler test in `cmd/gateway/main_test.go` per Edge Case: Concurrent Reloads (contradicts)
+- [x] T026 Defer committing `LastETag` and `LastHash` on `PolicySource` until YAML validation succeeds in `internal/policy/fetcher.go` and `internal/policy/reconciler.go` with tests in `internal/policy/reconciler_test.go` per US2/AC4 (partial)
+- [x] T027 Ignore untrusted `X-Forwarded-For` headers for client rate-limit keys and bound map growth in `internal/ratelimit/limiter.go` and `internal/cache/memory.go` with unit tests per Edge Case: Reverse Proxy Header Stripping (partial)
+
+

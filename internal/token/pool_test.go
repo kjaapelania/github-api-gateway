@@ -138,3 +138,42 @@ func TestTokenPool_UpdateTokens(t *testing.T) {
 		t.Errorf("expected token-2 remaining=5000, got: %d", status[1].Remaining)
 	}
 }
+
+func TestTokenPool_ProbeStampedePrevention(t *testing.T) {
+	pool := token.NewPool([]string{"token-a"}, 3000, false)
+	pastReset := time.Now().Add(-15 * time.Second)
+	pool.RecordUsage("token-a", 2900, pastReset)
+
+	// First caller acquires token-a for an inline probe
+	tok1, err := pool.Acquire()
+	if err != nil || tok1 != "token-a" {
+		t.Fatalf("expected first caller to acquire token-a for probe, got tok=%q err=%v", tok1, err)
+	}
+
+	// Second concurrent caller arriving before RecordUsage completes must NOT also probe token-a
+	_, err = pool.Acquire()
+	if err == nil {
+		t.Error("expected second concurrent caller during in-flight probe to be throttled (preventing probe stampede)")
+	}
+}
+
+func TestTokenPool_MarkInvalidToken(t *testing.T) {
+	pool := token.NewPool([]string{"revoked-token", "healthy-token"}, 3000, false)
+	pool.RecordUsage("revoked-token", 5000, time.Now().Add(1*time.Hour))
+	pool.RecordUsage("healthy-token", 4500, time.Now().Add(1*time.Hour))
+
+	// Initially revoked-token has higher remaining (5000 > 4500)
+	tok, err := pool.Acquire()
+	if err != nil || tok != "revoked-token" {
+		t.Fatalf("expected revoked-token initially, got %q", tok)
+	}
+
+	// Mark revoked-token invalid (e.g. after upstream 401 Unauthorized)
+	pool.MarkInvalid("revoked-token")
+
+	// Next Acquire must skip revoked-token and select healthy-token
+	tok2, err := pool.Acquire()
+	if err != nil || tok2 != "healthy-token" {
+		t.Fatalf("expected healthy-token after MarkInvalid, got %q (err=%v)", tok2, err)
+	}
+}
