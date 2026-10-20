@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -59,13 +63,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" \
-            bin/gateway-linux-x64 \
-            bin/gateway-linux-arm64 \
-            bin/gateway-darwin-x64 \
-            bin/gateway-darwin-arm64 \
-            bin/gateway-windows-x64.exe \
-            bin/checksums.txt \
-            --title "$TAG" \
-            --notes-file release-notes.md \
-            --verify-tag
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file release-notes.md
+            gh release upload "$TAG" \
+              bin/gateway-linux-x64 \
+              bin/gateway-linux-arm64 \
+              bin/gateway-darwin-x64 \
+              bin/gateway-darwin-arm64 \
+              bin/gateway-windows-x64.exe \
+              bin/checksums.txt \
+              --clobber
+          else
+            gh release create "$TAG" \
+              bin/gateway-linux-x64 \
+              bin/gateway-linux-arm64 \
+              bin/gateway-darwin-x64 \
+              bin/gateway-darwin-arm64 \
+              bin/gateway-windows-x64.exe \
+              bin/checksums.txt \
+              --title "$TAG" \
+              --notes-file release-notes.md \
+              --verify-tag
+          fi

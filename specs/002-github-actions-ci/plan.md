@@ -11,12 +11,14 @@ Implement a hermetic, vendor-neutral continuous integration pipeline following t
 1. **Core Port (`mise.toml` & `.mise/tasks/*.toml`)**:
    - `mise.toml` pins tools (`go`, `act`, `watchexec`).
    - `.mise/tasks/check.toml` defines the pure quality gate (`check-all`, `check:fmt`, `check:vet`, `check:test`).
-   - `.mise/tasks/build.toml` defines static cross-compilation with readable `x64` naming (`build-all`, `build:local`, `build:linux-x64`, etc.).
+   - `.mise/tasks/build.toml` defines static cross-compilation with readable `x64` naming, `-X main.version=${VERSION:-dev}` injection, and SHA-256 checksum generation (`build-all`, `build:checksums`, `build:local`, `build:linux-x64`, etc.).
    - `.mise/tasks/bin.toml` defines application runtime operations (`bin:run`, `bin:reload`, `bin:status`).
    - `.mise/tasks/dev.toml` defines developer helpers (`dev:fmt`, `dev:watch`).
    - `.mise/tasks/docker.toml` defines container & compose operations (`docker:build-debian`, `docker:build-alpine`, `docker:build-distroless`, `docker:build`, `docker:exec`, `compose:*`).
 2. **Driving Adapters**:
-   - **Remote CI (`.github/workflows/ci.yml`)**: Multi-job workflow invoking granular `mise run check:*` tasks and `mise run docker:build-*` tasks.
+   - **Remote CI (`.github/workflows/ci.yml`)**: Multi-job workflow with concurrency deduplication invoking granular `mise run check:*` tasks and `mise run docker:build-*` tasks.
+   - **Remote Release (`.github/workflows/release.yml`)**: Tag-triggered (`v*`) workflow with concurrency deduplication and idempotent `gh release` publishing that invokes `mise run check-all` and `VERSION=${{ github.ref_name }} mise run build-all`.
+   - **AI Release Skill (`.agents/skills/release/SKILL.md`)**: Interactive skill guiding SemVer selection, Keep-a-Changelog updates in `CHANGELOG.md`, `mise` verification, and annotated Git tag creation.
    - **Local Container Runner (`.act/ci.sh`)**: Standalone shell script with pre-flight Docker validation executing `act` locally, perfectly mirroring `ci.yml`.
    - **Local Shell**: Allows developers to execute `mise run check-all`, individual checks, or release builds natively.
 
@@ -84,36 +86,48 @@ depends = ["check:fmt", "check:vet", "check:test"]
 ```toml
 ["build:local"]
 description = "Compile gateway binary for current host architecture"
-run = "go build -v -o bin/gateway ./cmd/gateway"
+run = "go build -v -ldflags=\"-X main.version=${VERSION:-dev}\" -o bin/gateway ./cmd/gateway"
 
 ["build:linux-x64"]
 description = "Cross-compile static binary for Linux 64-bit Intel/AMD"
-run = "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -trimpath -ldflags='-s -w' -o bin/gateway-linux-x64 ./cmd/gateway"
+run = "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -trimpath -ldflags=\"-s -w -X main.version=${VERSION:-dev}\" -o bin/gateway-linux-x64 ./cmd/gateway"
 
 ["build:linux-arm64"]
 description = "Cross-compile static binary for Linux ARM64"
-run = "CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v -trimpath -ldflags='-s -w' -o bin/gateway-linux-arm64 ./cmd/gateway"
+run = "CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v -trimpath -ldflags=\"-s -w -X main.version=${VERSION:-dev}\" -o bin/gateway-linux-arm64 ./cmd/gateway"
 
 ["build:darwin-x64"]
 description = "Cross-compile static binary for macOS Intel 64-bit"
-run = "CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -v -trimpath -ldflags='-s -w' -o bin/gateway-darwin-x64 ./cmd/gateway"
+run = "CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -v -trimpath -ldflags=\"-s -w -X main.version=${VERSION:-dev}\" -o bin/gateway-darwin-x64 ./cmd/gateway"
 
 ["build:darwin-arm64"]
 description = "Compile static binary for macOS Apple Silicon ARM64"
-run = "CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -v -trimpath -ldflags='-s -w' -o bin/gateway-darwin-arm64 ./cmd/gateway"
+run = "CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -v -trimpath -ldflags=\"-s -w -X main.version=${VERSION:-dev}\" -o bin/gateway-darwin-arm64 ./cmd/gateway"
 
 ["build:windows-x64"]
 description = "Cross-compile static binary for Windows 64-bit"
-run = "CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -v -trimpath -ldflags='-s -w' -o bin/gateway-windows-x64.exe ./cmd/gateway"
+run = "CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -v -trimpath -ldflags=\"-s -w -X main.version=${VERSION:-dev}\" -o bin/gateway-windows-x64.exe ./cmd/gateway"
 
-[build-all]
-description = "Compile release binaries for all 5 target platforms"
+["build:checksums"]
+description = "Generate SHA-256 checksums for all 5 cross-compiled release binaries"
 depends = [
   "build:linux-x64",
   "build:linux-arm64",
   "build:darwin-x64",
   "build:darwin-arm64",
   "build:windows-x64"
+]
+run = "cd bin && shasum -a 256 gateway-linux-x64 gateway-linux-arm64 gateway-darwin-x64 gateway-darwin-arm64 gateway-windows-x64.exe > checksums.txt"
+
+[build-all]
+description = "Compile release binaries and SHA-256 checksums for all 5 target platforms"
+depends = [
+  "build:linux-x64",
+  "build:linux-arm64",
+  "build:darwin-x64",
+  "build:darwin-arm64",
+  "build:windows-x64",
+  "build:checksums"
 ]
 ```
 
@@ -303,10 +317,46 @@ exec "${ACT_RUNNER[@]}" -j "${JOB}" "$@"
 
 ---
 
-## 7. Implementation Phases
+## 7. Driving Adapter: Remote Release (`.github/workflows/release.yml`) & Release Skill (`.agents/skills/release/SKILL.md`)
+
+### `.github/workflows/release.yml`
+- Triggers on `push.tags: ['v*']`.
+- Declares `concurrency: { group: ${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: true }` so duplicate tag/branch push events cannot race.
+- Runs `mise run check-all` and `VERSION=${{ github.ref_name }} mise run build-all`.
+- Extracts the version section from `CHANGELOG.md` (or falls back to annotated tag message).
+- Publishes or updates the GitHub Release idempotently:
+  ```bash
+  if gh release view "$TAG" >/dev/null 2>&1; then
+    gh release edit "$TAG" --title "$TAG" --notes-file release-notes.md
+    gh release upload "$TAG" \
+      bin/gateway-linux-x64 \
+      bin/gateway-linux-arm64 \
+      bin/gateway-darwin-x64 \
+      bin/gateway-darwin-arm64 \
+      bin/gateway-windows-x64.exe \
+      bin/checksums.txt \
+      --clobber
+  else
+    gh release create "$TAG" \
+      bin/gateway-linux-x64 \
+      bin/gateway-linux-arm64 \
+      bin/gateway-darwin-x64 \
+      bin/gateway-darwin-arm64 \
+      bin/gateway-windows-x64.exe \
+      bin/checksums.txt \
+      --title "$TAG" \
+      --notes-file release-notes.md \
+      --verify-tag
+  fi
+  ```
+
+---
+
+## 8. Implementation Phases
 
 - **Phase 1**: Configure Core Port (`mise.toml`, `.mise/tasks/*.toml`), Local Adapter (`.act/ci.sh`), and Runner Config (`.actrc`).
 - **Phase 2**: Create Remote CI Driving Adapter (`.github/workflows/ci.yml`) and update `Dockerfile` for multi-stage Debian, Alpine, and Distroless targets.
 - **Phase 3**: Verify Quality Gate and Cross-compilation locally (`mise run check-all`, `mise run build-all`, `dev:*` tasks, container build tasks).
 - **Phase 4**: Execute containerized verification via `./.act/ci.sh`.
 - **Phase 5**: Documentation & final review.
+- **Phase 6 (Convergence)**: Align release automation (`VERSION` ldflags, `build:checksums`, `.agents/skills/release/SKILL.md`, `CHANGELOG.md`, `README.md`) and harden `.github/workflows/release.yml` & `.github/workflows/ci.yml` with concurrency deduplication and idempotent GitHub Release publishing.

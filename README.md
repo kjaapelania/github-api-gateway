@@ -225,8 +225,9 @@ This repository follows the **Hexagonal (Ports and Adapters)** architecture for 
 # Quality Gate (Zero-artifact read-only checks: fmt, vet, test with -race)
 mise run check-all
 
-# Cross-Platform Static Release Compilation (CGO_ENABLED=0)
-mise run build-all               # Compiles all 5 binaries into bin/
+# Cross-Platform Static Release Compilation (CGO_ENABLED=0, optional VERSION=vX.Y.Z ldflags)
+mise run build-all               # Compiles all 5 binaries + bin/checksums.txt
+mise run build:checksums         # Generates SHA-256 checksums in bin/checksums.txt
 mise run build:local             # Current host binary
 mise run build:linux-x64         # Linux 64-bit Intel/AMD
 mise run build:linux-arm64       # Linux 64-bit ARM
@@ -301,6 +302,15 @@ Test the exact GitHub Actions workflow inside local Docker containers on macOS (
 # Run container build verification inside runner
 ./.act/ci.sh container
 ```
+
+---
+
+### Release & Changelog Automation
+
+Releases follow [Semantic Versioning](https://semver.org/) and [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) in [`CHANGELOG.md`](CHANGELOG.md), orchestrated via the [`release` AI skill](.agents/skills/release/SKILL.md) and [`.github/workflows/release.yml`](.github/workflows/release.yml):
+
+1. **Prepare & Verify**: Run `mise run check-all` and `VERSION=vX.Y.Z mise run build-all` (injects `-X main.version=vX.Y.Z` and produces `bin/checksums.txt`), and update [`CHANGELOG.md`](CHANGELOG.md).
+2. **Tag & Publish**: Pushing an annotated `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which extracts the version notes from `CHANGELOG.md` and idempotently publishes all 5 cross-compiled binaries and `checksums.txt` to GitHub Releases.
 
 ---
 

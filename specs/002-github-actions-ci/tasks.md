@@ -65,3 +65,13 @@
 - [x] **T025**: Add `compose:ps` task to `.mise/tasks/docker.toml` running `docker compose ps` and document in `README.md`.
 - [x] **T026**: Implement cross-platform hot-reload: add `compose:reload` in `.mise/tasks/docker.toml`, update `bin:run` and `bin:reload` in `.mise/tasks/bin.toml` with `pkill -HUP` and Windows error check, add loopback guard to `POST /_gateway/reload` in `cmd/gateway/app.go`, add unit tests in `cmd/gateway/main_test.go`, and document in `README.md`.
 - [x] **T027**: Migrate default gateway port from `8080` to collision-free `28280` across `internal/config/config.go`, `Dockerfile`, `docker-compose.yml`, `.mise/tasks/docker.toml`, `.mise/tasks/bin.toml`, tests, `.env.example`, and `README.md`.
+
+---
+
+## Phase 6: Convergence
+
+**Purpose**: Close remaining gaps identified by convergence analysis against `spec.md` and `plan.md`.
+
+- [x] **T028**: [US3] [US4] Document `VERSION` ldflags injection, `build:checksums` (`bin/checksums.txt`) in `.mise/tasks/build.toml`, `.agents/skills/release/SKILL.md`, and `CHANGELOG.md` release workflow in `README.md`.
+- [x] **T029**: [US1] [US4] Harden `.github/workflows/release.yml` and `.github/workflows/ci.yml` with `concurrency` deduplication (`${{ github.workflow }}-${{ github.ref }}`) and make the `Publish GitHub Release` step in `.github/workflows/release.yml` idempotent (`gh release view` / `gh release edit` + `gh release upload --clobber`) to eliminate duplicate-dispatch race failures.
+- [x] **T030**: [US2] [US4] Validate updated workflows and quality gates via `./.act/ci.sh -n` and `mise run check-all`.
