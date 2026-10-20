@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release (${{ github.ref_name }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          version: 2026.6.5
+
+      - name: Set up Go 1.25.8
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.8'
+          cache: true
+
+      - name: Run Verification Gate
+        run: mise run check-all
+
+      - name: Cross-Compile Release Binaries & Checksums
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: mise run build-all
+
+      - name: Extract Release Notes from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VER="${TAG#v}"
+          awk -v ver="$VER" '
+            $0 ~ "^## \\[" ver "\\]" || $0 ~ "^## " ver " " { found=1; next }
+            found && $0 ~ "^## " { exit }
+            found && $0 ~ "^\\[" ver "\\]:" { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+
+          if [ ! -s release-notes.md ]; then
+            git tag -l --format='%(contents)' "$TAG" > release-notes.md
+          fi
+          cat release-notes.md
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            bin/gateway-linux-x64 \
+            bin/gateway-linux-arm64 \
+            bin/gateway-darwin-x64 \
+            bin/gateway-darwin-arm64 \
+            bin/gateway-windows-x64.exe \
+            bin/checksums.txt \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            --verify-tag
