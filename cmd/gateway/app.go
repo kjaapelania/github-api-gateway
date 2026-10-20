@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -35,6 +36,7 @@ type App struct {
 	AuthMgr        *auth.Manager
 	Limiter        *ratelimit.Limiter
 	Proxy          *proxy.Handler
+	Metrics        *telemetry.Registry
 	Handler        http.Handler
 	StartTime      time.Time
 	TargetHost     string
@@ -87,29 +89,48 @@ func NewApp(cfg *config.Config, targetURL string) (*App, error) {
 	// 6. Per-client token-bucket rate limiter to prevent noisy-neighbor quota exhaustion
 	limiter := ratelimit.NewLimiter(cfg.ClientMaxRPM, cfg.ClientBurst)
 
-	// 7. Telemetry and health status handler (queries live key and policy rule counts)
+	// 7. Telemetry, Prometheus metrics, and health status handlers
 	startTime := time.Now()
+	policyRulesFn := func() int {
+		if p := proxyHandler.GetPolicy(); p != nil {
+			return p.RuleCount()
+		}
+		return 0
+	}
+
 	statusHandler := telemetry.NewDynamicStatusHandler(
 		startTime,
 		pool,
 		c,
 		authMgr.KeyCount,
-		func() int {
-			if p := proxyHandler.GetPolicy(); p != nil {
-				return p.RuleCount()
-			}
-			return 0
-		},
+		policyRulesFn,
 	)
 
+	metricsRegistry := telemetry.NewRegistry(startTime, telemetry.GaugeSources{
+		ActiveAuthKeys: authMgr.KeyCount,
+		PolicyRules:    policyRulesFn,
+		CacheEntries:   c.Count,
+		ActiveBuckets:  limiter.BucketCount,
+		TokenStatuses:  pool.Status,
+	})
+	authMgr.SetOnDecision(metricsRegistry.RecordAuthDecision)
+	limiter.SetOnDecision(metricsRegistry.RecordRateLimitDecision)
+	c.SetOnOutcome(metricsRegistry.RecordCacheOutcome)
+	proxyHandler.SetOnPolicyDecision(metricsRegistry.RecordPolicyDecision)
+
+	metricsHandler := telemetry.NewMetricsHandler(metricsRegistry)
+	obsMiddleware := telemetry.NewObservabilityMiddleware(metricsRegistry, slog.Default())
+
 	// 8. Route and middleware stack:
-	// Status & Reload endpoints are accessible for administration
-	// API requests pass through Auth -> RateLimiter -> Cache -> Proxy
-	apiHandler := authMgr.Middleware(limiter.Middleware(c.Middleware(proxyHandler)))
+	// Status, Metrics & Reload endpoints are accessible for administration
+	// API requests pass through Observability -> Auth -> RateLimiter -> Cache -> Proxy
+	apiHandler := obsMiddleware(authMgr.Middleware(limiter.Middleware(c.Middleware(proxyHandler))))
 
 	mux := http.NewServeMux()
 	mux.Handle("/_gateway/status", statusHandler)
 	mux.Handle("/_relay/status", statusHandler)
+	mux.Handle("/_gateway/metrics", metricsHandler)
+	mux.Handle("/_relay/metrics", metricsHandler)
 	mux.Handle("/", apiHandler)
 
 	app := &App{
@@ -122,6 +143,7 @@ func NewApp(cfg *config.Config, targetURL string) (*App, error) {
 		AuthMgr:      authMgr,
 		Limiter:      limiter,
 		Proxy:        proxyHandler,
+		Metrics:      metricsRegistry,
 		Handler:      mux,
 		StartTime:    startTime,
 		TargetHost:   targetURL,

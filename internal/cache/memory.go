@@ -26,6 +26,23 @@ type Cache struct {
 	entries    map[string]*Entry
 	ttl        time.Duration
 	maxEntries int
+	onOutcome  func(result string)
+}
+
+// SetOnOutcome registers an optional observer callback invoked on each cache outcome ("revalidated", "miss", "bypass").
+func (c *Cache) SetOnOutcome(fn func(result string)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onOutcome = fn
+}
+
+func (c *Cache) notifyOutcome(result string) {
+	c.mu.RLock()
+	fn := c.onOutcome
+	c.mu.RUnlock()
+	if fn != nil {
+		fn(result)
+	}
 }
 
 // New creates a new in-memory response cache with the specified TTL.
@@ -140,6 +157,7 @@ func (c *Cache) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Only GET requests participate in ETag caching
 		if r.Method != http.MethodGet {
+			c.notifyOutcome("bypass")
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -158,11 +176,13 @@ func (c *Cache) Middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(cw, r)
 
 		if cw.passthrough {
+			c.notifyOutcome("bypass")
 			return
 		}
 
 		// Handle 304 Not Modified from upstream
 		if cw.statusCode == http.StatusNotModified && found && entry != nil {
+			c.notifyOutcome("revalidated")
 			// First copy cached headers
 			for k, vv := range entry.Header {
 				for _, v := range vv {
@@ -190,6 +210,7 @@ func (c *Cache) Middleware(next http.Handler) http.Handler {
 
 		// Handle 200 OK from upstream
 		if cw.statusCode == http.StatusOK {
+			c.notifyOutcome("miss")
 			for k, vv := range cw.header {
 				for _, v := range vv {
 					w.Header().Add(k, v)

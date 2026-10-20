@@ -12,8 +12,9 @@ type Middleware func(http.Handler) http.Handler
 
 // Manager manages active relay authentication keys dynamically with thread safety.
 type Manager struct {
-	mu     sync.RWMutex
-	keySet map[string]bool
+	mu         sync.RWMutex
+	keySet     map[string]bool
+	onDecision func(allowed bool)
 }
 
 // NewManager creates a key manager with the provided keys.
@@ -21,6 +22,13 @@ func NewManager(keys []string) *Manager {
 	m := &Manager{}
 	m.SetKeys(keys)
 	return m
+}
+
+// SetOnDecision registers an optional observer callback invoked on each authentication decision.
+func (m *Manager) SetOnDecision(fn func(allowed bool)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onDecision = fn
 }
 
 // SetKeys atomically replaces the set of allowed relay authentication keys.
@@ -51,7 +59,12 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 		isOpen := len(m.keySet) == 0
 		providedKey := extractKey(r)
 		allowed := isOpen || m.keySet[providedKey]
+		onDecision := m.onDecision
 		m.mu.RUnlock()
+
+		if onDecision != nil {
+			onDecision(allowed)
+		}
 
 		if allowed {
 			next.ServeHTTP(w, r)

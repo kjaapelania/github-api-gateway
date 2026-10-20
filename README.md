@@ -183,11 +183,17 @@ external_rules:
 
 ## Operational Commands
 
-### Check Health & Telemetry
+### Check Health, Prometheus Metrics & OpenTelemetry Tracing
 ```bash
+# JSON status & telemetry summary
 curl -s http://localhost:28280/_gateway/status | jq .
+
+# Prometheus 0.0.4 text exposition metrics (counters, histograms, and masked token gauges)
+curl -s http://localhost:28280/_gateway/metrics
 ```
-Returns uptime, active policy rules, cache size, and token pool health with **masked tokens** (e.g. `ghp_...18WX`).
+- **JSON Status (`/_gateway/status`)**: Returns uptime, active policy rules, cache size, and token pool health with **masked tokens** (e.g. `ghp_...18WX`).
+- **Prometheus Metrics (`/_gateway/metrics`)**: Exposes `github_api_gateway_requests_total`, `github_api_gateway_request_duration_seconds`, `github_api_gateway_cache_events_total`, `github_api_gateway_policy_decisions_total`, `github_api_gateway_ratelimit_decisions_total`, `github_api_gateway_auth_decisions_total`, and per-token `github_api_gateway_token_remaining` / `github_api_gateway_token_in_cooldown` gauges using masked token IDs.
+- **OpenTelemetry W3C Trace Context (`traceparent` / `tracestate`)**: Incoming `traceparent` headers (`00-<trace-id>-<parent-id>-<flags>`) automatically spawn a child gateway `span_id`, propagate `traceparent` and `tracestate` upstream to GitHub, echo `traceparent` in the client response headers, and correlate structured `slog` request logs with `trace_id`, `span_id`, and `parent_span_id`.
 
 ### Zero-Restart Hot-Reload & Declarative Reconciliation
 Update policy rules or rate limits and apply changes in-memory with zero dropped connections:
@@ -241,7 +247,8 @@ mise run dev:watch               # Event-driven test watcher via watchexec (0% i
 
 # Application Lifecycle
 mise run bin:run                 # Build and run native gateway binary locally
-mise run bin:status              # Query telemetry endpoint
+mise run bin:status              # Query JSON telemetry endpoint (/_gateway/status)
+mise run bin:metrics             # Scrape Prometheus metrics endpoint (/_gateway/metrics)
 mise run bin:reload              # Hot-reload policy via SIGHUP (macOS/Linux)
 
 # Containers & Docker Compose

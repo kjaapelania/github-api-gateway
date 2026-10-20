@@ -290,3 +290,31 @@ func TestLimiter_UpdateLimits(t *testing.T) {
 		t.Fatalf("expected updated burst capacity 20, got allowed count %d", allowedCount)
 	}
 }
+
+func TestLimiter_OnDecisionHook(t *testing.T) {
+	limiter := ratelimit.NewLimiter(60, 1)
+	var allowedCount, throttledCount int
+	limiter.SetOnDecision(func(allowed bool) {
+		if allowed {
+			allowedCount++
+		} else {
+			throttledCount++
+		}
+	})
+
+	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Gateway-Key", "client-hook")
+
+	// First request allowed (burst=1)
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	// Second immediate request throttled
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	if allowedCount != 1 || throttledCount != 1 {
+		t.Fatalf("expected allowed=1, throttled=1; got allowed=%d, throttled=%d", allowedCount, throttledCount)
+	}
+}

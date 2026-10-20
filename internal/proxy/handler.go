@@ -16,10 +16,18 @@ import (
 
 // Handler proxies authorized HTTP requests to upstream GitHub while injecting tokens and recording usage.
 type Handler struct {
-	target   *url.URL
-	policyMu sync.RWMutex
-	policy   *policy.Policy
-	pool     *token.Pool
+	target           *url.URL
+	policyMu         sync.RWMutex
+	policy           *policy.Policy
+	pool             *token.Pool
+	onPolicyDecision func(allowed bool)
+}
+
+// SetOnPolicyDecision registers an optional observer callback invoked on each policy evaluation.
+func (h *Handler) SetOnPolicyDecision(fn func(allowed bool)) {
+	h.policyMu.Lock()
+	defer h.policyMu.Unlock()
+	h.onPolicyDecision = fn
 }
 
 // NewHandler creates a new reverse proxy handler.
@@ -52,9 +60,16 @@ func (h *Handler) GetPolicy() *policy.Policy {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Policy enforcement (Fail-Closed Default Deny)
-	pol := h.GetPolicy()
+	h.policyMu.RLock()
+	pol := h.policy
+	onPolicyDecision := h.onPolicyDecision
+	h.policyMu.RUnlock()
+
 	if pol != nil {
 		allowed, reason := pol.Evaluate(r.Method, r.URL.Path)
+		if onPolicyDecision != nil {
+			onPolicyDecision(allowed)
+		}
 		if !allowed {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)

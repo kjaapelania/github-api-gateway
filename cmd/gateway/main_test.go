@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1120,5 +1121,136 @@ func TestEndToEnd_ReloadPreservesCLIOverrides(t *testing.T) {
 	if app.Config.ClientMaxRPM != 240 || app.Config.ClientBurst != 25 || app.Config.TokenMinRemaining != 1500 {
 		t.Errorf("expected CLI overrides preserved after Reload(), got ClientMaxRPM=%d ClientBurst=%d TokenMinRemaining=%d",
 			app.Config.ClientMaxRPM, app.Config.ClientBurst, app.Config.TokenMinRemaining)
+	}
+}
+
+func TestEndToEnd_PrometheusMetricsAndTraceContext(t *testing.T) {
+	policyPath, err := filepath.Abs("../../policy.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var upstreamTraceParent, upstreamTraceState string
+	mockGitHub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamTraceParent = r.Header.Get("traceparent")
+		upstreamTraceState = r.Header.Get("tracestate")
+
+		if r.Header.Get("If-None-Match") == `"etag-metrics-1"` {
+			w.Header().Set("X-RateLimit-Remaining", "4990")
+			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(1*time.Hour).Unix(), 10))
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", `"etag-metrics-1"`)
+		w.Header().Set("X-RateLimit-Remaining", "4990")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(1*time.Hour).Unix(), 10))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"tag_name":"v1.0.0"}`))
+	}))
+	defer mockGitHub.Close()
+
+	rawToken := "ghp_metrics_test_token_1234567890ABCD"
+	cfg := &config.Config{
+		Port:              "28280",
+		PolicyPath:        policyPath,
+		AuthKeys:          []string{"obs-key-1"},
+		GitHubTokens:      []string{rawToken},
+		TokenMinRemaining: 3000,
+		CacheTTLSeconds:   300,
+		ClientMaxRPM:      60,
+		ClientBurst:       2,
+		TargetURL:         mockGitHub.URL,
+	}
+
+	app, err := NewApp(cfg, mockGitHub.URL)
+	if err != nil {
+		t.Fatalf("NewApp failed: %v", err)
+	}
+	defer app.Close()
+
+	// 1. Valid request with incoming W3C traceparent -> 200 OK (cache miss)
+	incomingTP := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	req1 := httptest.NewRequest(http.MethodGet, "/repos/golang/go/releases/latest", nil)
+	req1.Header.Set("X-Gateway-Key", "obs-key-1")
+	req1.Header.Set("traceparent", incomingTP)
+	req1.Header.Set("tracestate", "vendor=relay")
+	rec1 := httptest.NewRecorder()
+	app.Handler.ServeHTTP(rec1, req1)
+
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on req1, got %d", rec1.Code)
+	}
+	respTP1 := rec1.Header().Get("traceparent")
+	if !strings.HasPrefix(respTP1, "00-4bf92f3577b34da6a3ce929d0e0e4736-") || respTP1 == incomingTP {
+		t.Errorf("expected child traceparent with preserved trace-id and new span-id, got %q", respTP1)
+	}
+	if upstreamTraceParent != respTP1 {
+		t.Errorf("expected upstream traceparent %q to match response traceparent %q", upstreamTraceParent, respTP1)
+	}
+	if upstreamTraceState != "vendor=relay" {
+		t.Errorf("expected upstream tracestate 'vendor=relay', got %q", upstreamTraceState)
+	}
+
+	// 2. Second GET to same URL -> 200 OK via 304 ETag revalidation
+	req2 := httptest.NewRequest(http.MethodGet, "/repos/golang/go/releases/latest", nil)
+	req2.Header.Set("X-Gateway-Key", "obs-key-1")
+	rec2 := httptest.NewRecorder()
+	app.Handler.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on cached req2, got %d", rec2.Code)
+	}
+
+	// 3. Third request with same key exceeds burst=2 -> 429 rate limited
+	req3 := httptest.NewRequest(http.MethodGet, "/repos/golang/go/releases/latest", nil)
+	req3.Header.Set("X-Gateway-Key", "obs-key-1")
+	rec3 := httptest.NewRecorder()
+	app.Handler.ServeHTTP(rec3, req3)
+	if rec3.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 on req3, got %d", rec3.Code)
+	}
+
+	// 4. Unauthorized request -> 401
+	req4 := httptest.NewRequest(http.MethodGet, "/repos/golang/go/releases/latest", nil)
+	req4.Header.Set("X-Gateway-Key", "invalid-key")
+	rec4 := httptest.NewRecorder()
+	app.Handler.ServeHTTP(rec4, req4)
+	if rec4.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on req4, got %d", rec4.Code)
+	}
+
+	// 5. Scrape /_gateway/metrics and /_relay/metrics
+	for _, endpoint := range []string{"/_gateway/metrics", "/_relay/metrics"} {
+		mReq := httptest.NewRequest(http.MethodGet, endpoint, nil)
+		mRec := httptest.NewRecorder()
+		app.Handler.ServeHTTP(mRec, mReq)
+
+		if mRec.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200 OK, got %d", endpoint, mRec.Code)
+		}
+		if ct := mRec.Header().Get("Content-Type"); ct != "text/plain; version=0.0.4; charset=utf-8" {
+			t.Errorf("%s: unexpected Content-Type %q", endpoint, ct)
+		}
+		body := mRec.Body.String()
+		if strings.Contains(body, rawToken) || strings.Contains(body, "obs-key-1") {
+			t.Fatalf("SECURITY VIOLATION: secret leaked in %s:\n%s", endpoint, body)
+		}
+
+		for _, expected := range []string{
+			`github_api_gateway_requests_total{method="GET",status="200"} 2`,
+			`github_api_gateway_requests_total{method="GET",status="401"} 1`,
+			`github_api_gateway_requests_total{method="GET",status="429"} 1`,
+			`github_api_gateway_auth_decisions_total{decision="allow"} 3`,
+			`github_api_gateway_auth_decisions_total{decision="reject"} 1`,
+			`github_api_gateway_ratelimit_decisions_total{decision="allow"} 2`,
+			`github_api_gateway_ratelimit_decisions_total{decision="throttle"} 1`,
+			`github_api_gateway_cache_events_total{result="miss"} 1`,
+			`github_api_gateway_cache_events_total{result="revalidated"} 1`,
+			`github_api_gateway_policy_decisions_total{decision="allow"} 2`,
+			`github_api_gateway_token_remaining{token_id="ghp_...ABCD"} 4990`,
+		} {
+			if !strings.Contains(body, expected) {
+				t.Errorf("%s: expected metric line %q in body:\n%s", endpoint, expected, body)
+			}
+		}
 	}
 }

@@ -248,3 +248,34 @@ func TestMemoryCache_MaxEntriesCap(t *testing.T) {
 		t.Fatalf("expected cache entry count to be bounded at <= 3, got %d", count)
 	}
 }
+
+func TestMemoryCache_OnOutcomeHook(t *testing.T) {
+	c := cache.New(5 * time.Minute)
+	outcomes := make(map[string]int)
+	c.SetOnOutcome(func(result string) {
+		outcomes[result]++
+	})
+
+	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("If-None-Match") == `"etag-hook"` {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", `"etag-hook"`)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+
+	handler := c.Middleware(upstream)
+
+	// 1. First GET -> miss
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/hook", nil))
+	// 2. Second GET -> revalidated (304)
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/hook", nil))
+	// 3. POST -> bypass
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/hook", nil))
+
+	if outcomes["miss"] != 1 || outcomes["revalidated"] != 1 || outcomes["bypass"] != 1 {
+		t.Fatalf("expected miss=1, revalidated=1, bypass=1; got %v", outcomes)
+	}
+}

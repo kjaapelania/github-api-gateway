@@ -94,6 +94,14 @@ type Limiter struct {
 	maxRPM     int
 	burst      int
 	ratePerS   float64
+	onDecision func(allowed bool)
+}
+
+// SetOnDecision registers an optional observer callback invoked on each rate-limiting decision.
+func (l *Limiter) SetOnDecision(fn func(allowed bool)) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.onDecision = fn
 }
 
 // NewLimiter creates a per-client token-bucket rate limiter.
@@ -238,15 +246,22 @@ func (l *Limiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		l.mu.RLock()
 		maxRPM := l.maxRPM
+		onDecision := l.onDecision
 		l.mu.RUnlock()
 
 		if maxRPM <= 0 {
+			if onDecision != nil {
+				onDecision(true)
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		clientID := extractClientID(r)
 		allowed, retryAfter := l.GetBucket(clientID).Allow()
+		if onDecision != nil {
+			onDecision(allowed)
+		}
 		if !allowed {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))

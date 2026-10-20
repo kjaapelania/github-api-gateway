@@ -126,3 +126,31 @@ func TestKeyManager_DynamicKeyRotation(t *testing.T) {
 		t.Fatalf("expected 200 OK with key-v2, got: %d", rec3.Code)
 	}
 }
+
+func TestKeyManager_OnDecisionHook(t *testing.T) {
+	mgr := auth.NewManager([]string{"valid-key"})
+	var allowedCount, rejectedCount int
+	mgr.SetOnDecision(func(allowed bool) {
+		if allowed {
+			allowedCount++
+		} else {
+			rejectedCount++
+		}
+	})
+
+	handler := mgr.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	reqOK := httptest.NewRequest("GET", "/test", nil)
+	reqOK.Header.Set("X-Gateway-Key", "valid-key")
+	handler.ServeHTTP(httptest.NewRecorder(), reqOK)
+
+	reqBad := httptest.NewRequest("GET", "/test", nil)
+	reqBad.Header.Set("X-Gateway-Key", "bad-key")
+	handler.ServeHTTP(httptest.NewRecorder(), reqBad)
+
+	if allowedCount != 1 || rejectedCount != 1 {
+		t.Fatalf("expected allowed=1, rejected=1; got allowed=%d, rejected=%d", allowedCount, rejectedCount)
+	}
+}

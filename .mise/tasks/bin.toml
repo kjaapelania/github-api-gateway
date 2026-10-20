@@ -19,3 +19,7 @@ fi
 ["bin:status"]
 description = "Query gateway status and telemetry"
 run = "curl -s http://localhost:${GITHUB_API_GATEWAY_PORT:-28280}/_gateway/status | jq ."
+
+["bin:metrics"]
+description = "Scrape gateway Prometheus metrics"
+run = "curl -s http://localhost:${GITHUB_API_GATEWAY_PORT:-28280}/_gateway/metrics"

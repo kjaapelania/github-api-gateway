@@ -263,3 +263,32 @@ internal_rules:
 		t.Fatalf("expected 200 OK on second request using healthy token, got %d", rec2.Code)
 	}
 }
+
+func TestProxyHandler_OnPolicyDecisionHook(t *testing.T) {
+	pol, _ := policy.LoadFromBytes([]byte(`
+internal_rules:
+  - repo: "org/allowed"
+    methods: ["GET"]
+`))
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer mockUpstream.Close()
+
+	h := proxy.NewHandler(mockUpstream.URL, pol, nil)
+	var allowCount, denyCount int
+	h.SetOnPolicyDecision(func(allowed bool) {
+		if allowed {
+			allowCount++
+		} else {
+			denyCount++
+		}
+	})
+
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/repos/org/allowed/releases", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/repos/org/blocked/releases", nil))
+
+	if allowCount != 1 || denyCount != 1 {
+		t.Fatalf("expected allow=1, deny=1; got allow=%d, deny=%d", allowCount, denyCount)
+	}
+}
