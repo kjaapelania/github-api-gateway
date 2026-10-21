@@ -45,3 +45,11 @@ run = "docker compose ps"
 ["compose:reload"]
 description = "Hot-reload Compose gateway policy via SIGHUP"
 run = "docker compose kill -s HUP gateway"
+
+["compose:obs-up"]
+description = "Start gateway with local Prometheus (:28290) and Grafana (:28300) observability stack"
+run = "docker compose --profile observability up -d --build"
+
+["compose:obs-down"]
+description = "Stop gateway and local Prometheus/Grafana observability stack"
+run = "docker compose --profile observability down"

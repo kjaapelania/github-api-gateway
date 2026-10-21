@@ -22,6 +22,8 @@ Implement zero-dependency, standard-library-native **Prometheus Metrics Expositi
 3. **Subsystem Instrumentation & Wiring (`cmd/gateway/app.go`, `internal/auth`, `internal/ratelimit`, `internal/cache`, `internal/proxy`)**:
    - Non-intrusive observer callbacks or registry hooks on `auth.Manager`, `ratelimit.Limiter`, `cache.Cache`, and `proxy.Handler` to increment subsystem decision counters accurately.
    - Register `/_gateway/metrics` and `/_relay/metrics` on `App` mux and add `bin:metrics` task to `.mise/tasks/bin.toml`.
+4. **Local Prometheus & Grafana Docker Compose Profile (`docker-compose.yml`, `deploy/observability/`, `.mise/tasks/docker.toml`)**:
+   - Opt-in `observability` Compose profile (`mise run compose:obs-up` / `mise run compose:obs-down`) launching Prometheus (`:28290`) and Grafana (`:28300`) with pre-provisioned Prometheus datasource and a GitHub API Gateway dashboard.
 
 ## Technical Context
 

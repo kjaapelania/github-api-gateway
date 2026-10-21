@@ -194,6 +194,12 @@ curl -s http://localhost:28280/_gateway/metrics
 - **JSON Status (`/_gateway/status`)**: Returns uptime, active policy rules, cache size, and token pool health with **masked tokens** (e.g. `ghp_...18WX`).
 - **Prometheus Metrics (`/_gateway/metrics`)**: Exposes `github_api_gateway_requests_total`, `github_api_gateway_request_duration_seconds`, `github_api_gateway_cache_events_total`, `github_api_gateway_policy_decisions_total`, `github_api_gateway_ratelimit_decisions_total`, `github_api_gateway_auth_decisions_total`, and per-token `github_api_gateway_token_remaining` / `github_api_gateway_token_in_cooldown` gauges using masked token IDs.
 - **OpenTelemetry W3C Trace Context (`traceparent` / `tracestate`)**: Incoming `traceparent` headers (`00-<trace-id>-<parent-id>-<flags>`) automatically spawn a child gateway `span_id`, propagate `traceparent` and `tracestate` upstream to GitHub, echo `traceparent` in the client response headers, and correlate structured `slog` request logs with `trace_id`, `span_id`, and `parent_span_id`.
+- **Turnkey Local Prometheus & Grafana Stack (`observability` profile)**:
+  ```bash
+  mise run compose:obs-up    # Launches gateway (:28280), Prometheus (:28290), and Grafana (:28300)
+  mise run compose:obs-down  # Stops the observability stack
+  ```
+  Grafana (`http://localhost:28300`) boots directly into the pre-provisioned **GitHub API Gateway Overview** dashboard (`deploy/observability/grafana/dashboards/github-api-gateway.json`).
 
 ### Zero-Restart Hot-Reload & Declarative Reconciliation
 Update policy rules or rate limits and apply changes in-memory with zero dropped connections:
@@ -262,6 +268,8 @@ mise run compose:ps              # List running Compose services and status
 mise run compose:reload          # Hot-reload Compose gateway policy via SIGHUP
 mise run compose:logs            # Stream container logs
 mise run compose:exec            # Interactive shell in Compose gateway service
+mise run compose:obs-up          # Start gateway + Prometheus (:28290) + Grafana (:28300)
+mise run compose:obs-down        # Stop gateway + Prometheus + Grafana stack
 ```
 
 ---

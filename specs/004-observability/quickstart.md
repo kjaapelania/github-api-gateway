@@ -39,3 +39,21 @@ curl -i \
 
 - The HTTP response includes `Traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-<16-hex-child-span-id>-01`.
 - The gateway structured log outputs `trace_id=4bf92f3577b34da6a3ce929d0e0e4736`, `parent_span_id=00f067aa0ba902b7`, and the generated `span_id`.
+
+## 4. Launch Local Prometheus & Grafana Dashboard Stack
+
+Start the gateway together with Prometheus and Grafana via the `observability` Docker Compose profile:
+
+```bash
+mise run compose:obs-up
+```
+
+- **Gateway**: `http://localhost:28280/_gateway/metrics`
+- **Prometheus UI**: `http://localhost:28290` (scrapes `gateway:28280/_gateway/metrics` every 5s)
+- **Grafana UI**: `http://localhost:28300` (auto-opens the pre-provisioned **GitHub API Gateway Overview** dashboard with anonymous access enabled)
+
+Stop the stack when finished:
+
+```bash
+mise run compose:obs-down
+```

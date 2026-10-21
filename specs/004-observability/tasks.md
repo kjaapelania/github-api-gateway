@@ -65,3 +65,14 @@
 - [x] **T010** [US1] [US2] [US3] Wire `telemetry.Registry`, subsystem callbacks (`AuthMgr`, `Limiter`, `Cache`, `Proxy`), `NewObservabilityMiddleware`, and `/_gateway/metrics` + `/_relay/metrics` routes in `cmd/gateway/app.go`.
 - [x] **T011** [P] Add `bin:metrics` task to `.mise/tasks/bin.toml` (`curl -s http://localhost:${GITHUB_API_GATEWAY_PORT:-28280}/_gateway/metrics`) and document Prometheus metrics & OpenTelemetry W3C Trace Context in `README.md` and `specs/002-github-actions-ci/`.
 - [x] **T012** Run full verification gate (`mise run check-all`) with race detector enabled (`-race`) and verify zero warnings or regressions.
+
+---
+
+## Phase 5: Convergence - Local Prometheus & Grafana Observability Profile (User Story 4)
+
+**Purpose**: Provide a turnkey local Prometheus + Grafana Docker Compose profile (`observability`) with pre-provisioned datasource and dashboard.
+
+- [x] **T013** [P] [US4] Create Prometheus scrape config (`deploy/observability/prometheus.yml`) and Grafana provisioning configs (`deploy/observability/grafana/provisioning/datasources/datasource.yml`, `deploy/observability/grafana/provisioning/dashboards/dashboards.yml`, and `deploy/observability/grafana/dashboards/github-api-gateway.json`).
+- [x] **T014** [US4] Update `docker-compose.yml` to add `prometheus` (`:28290`) and `grafana` (`:28300`) under `profiles: ["observability"]`, and update `compose:down` in `.mise/tasks/docker.toml` plus add `compose:obs-up` and `compose:obs-down`.
+- [x] **T015** [US4] Update `specs/004-observability/quickstart.md` and `README.md` to document `mise run compose:obs-up` and `mise run compose:obs-down`.
+- [x] **T016** [US4] Validate Compose configuration (`docker compose --profile observability config -q`) and run `mise run check-all`.

@@ -56,6 +56,21 @@ As an incident responder investigating a failed or slow API request, I want stru
 
 ---
 
+### User Story 4 - Turnkey Local Prometheus & Grafana Observability Profile (Priority: P3)
+
+As a developer or operator testing the gateway locally, I want an opt-in Docker Compose `observability` profile (`mise run compose:obs-up`) that launches Prometheus (scraping `gateway:28280/_gateway/metrics`) and Grafana with a pre-provisioned datasource and dashboard, so that I can visualize token pool quotas, ETag cache savings, latency percentiles, and policy/rate-limit decisions out of the box without manual UI setup.
+
+**Why this priority**: Turnkey local visualization validates the Prometheus metrics contract against real Prometheus and Grafana instances while keeping the default `compose:up` footprint minimal.
+
+**Independent Test**: Run `docker compose --profile observability config -q` (and `mise run compose:obs-up` when Docker is active) and verify Prometheus (`:28290`) and Grafana (`:28300`) load the pre-provisioned datasource and GitHub API Gateway dashboard cleanly.
+
+**Acceptance Scenarios**:
+
+1. **Given** the default `mise run compose:up` command, **When** executed, **Then** only the `gateway` service starts (Prometheus and Grafana remain opt-in under `profiles: ["observability"]`).
+2. **Given** `mise run compose:obs-up` (`docker compose --profile observability up -d --build`), **When** started, **Then** Prometheus scrapes `gateway:28280/_gateway/metrics` every 5 seconds on port `28290` and Grafana serves a pre-provisioned GitHub API Gateway dashboard on port `28300`.
+
+---
+
 ### Edge Cases
 
 - **Malformed `traceparent` headers**: If an incoming `traceparent` has the wrong number of hyphen-separated segments, unsupported version format, non-lowercase-hex characters, an all-zero `trace-id` (`00000000000000000000000000000000`), or an all-zero `parent-id` (`0000000000000000`), the gateway MUST safely ignore the invalid header and generate a fresh root trace context without rejecting the request.
@@ -88,6 +103,8 @@ As an incident responder investigating a failed or slow API request, I want stru
 - **FR-005**: The gateway MUST emit structured request log records via `log/slog` containing `trace_id`, `span_id`, `parent_span_id` (if derived from an incoming trace), `method`, `path`, `status`, and `duration_ms`.
 - **FR-006**: The implementation MUST use only the Go standard library (zero external third-party dependencies added to `go.mod`) and never expose raw GitHub PATs or client auth keys in metrics or logs.
 - **FR-007**: A convenience task `bin:metrics` MUST be added to `.mise/tasks/bin.toml` (and documented in `README.md`) to query `http://localhost:${GITHUB_API_GATEWAY_PORT:-28280}/_gateway/metrics`.
+- **FR-008**: `docker-compose.yml` MUST define an opt-in `observability` profile (`profiles: ["observability"]`) with `prometheus` (`prom/prometheus`, default host port `28290`) and `grafana` (`grafana/grafana-oss`, default host port `28300`) plus declarative provisioning files under `deploy/observability/`.
+- **FR-009**: `.mise/tasks/docker.toml` MUST provide `compose:obs-up` and `compose:obs-down` tasks to start and stop the observability profile.
 
 ### Key Entities
 
