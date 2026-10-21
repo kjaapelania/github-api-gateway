@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2026-10-20
+## [0.1.0] - 2026-10-21
 
 ### Security
 - **Fail-closed default-deny access policy (`policy.yaml`).** Blocks all requests with `403 Forbidden` unless explicitly matched by repository glob/regex, path glob/regex, and mandatory HTTP method rules. Permanently hard-blocks sensitive account endpoints (`/user`, `/user/**`, `/admin/**`, `/authorizations/**`, `/settings/**`).
@@ -19,7 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Universal external release version checks in default policy.** Includes default `external_rules` for `/repos/*/*/releases/latest`, `/repos/*/*/releases/tags/*`, and `/repos/*/*/releases/download/**` so CI/CD pipelines and developer tools can check latest GitHub-hosted tool versions without exhausting the 60 req/hr unauthenticated rate limit.
 - **Per-client token-bucket rate limiting.** Protects the shared token pool from noisy neighbors (`GITHUB_API_GATEWAY_CLIENT_MAX_RPM=60`, `GITHUB_API_GATEWAY_CLIENT_BURST=10`) with independent buckets per gateway key (or `RemoteAddr` IP in open mode) and `429 Too Many Requests` + `Retry-After` diagnostics.
 - **Declarative remote policy loading and background reconciliation.** Supports loading `policy.yaml` from remote `http://` / `https://` URLs with periodic ETag (`If-None-Match`) and SHA-256 reconciliation (`GITHUB_API_GATEWAY_POLICY_POLL_INTERVAL`), zero-downtime `SIGHUP` / `POST /_gateway/reload` hot-swaps, and automatic rollback on corrupt YAML.
-- **Multi-key client authentication and live telemetry.** Supports zero-downtime client key rotation (`GITHUB_API_GATEWAY_AUTH_KEYS`), live health and masked token quota telemetry at `GET /_gateway/status`, and `-version` / `-healthcheck` CLI flags.
-- **Hexagonal `mise` task runner, CI pipeline, and multi-target containers.** Provides modular `.mise/tasks/` ports (`check-all`, `build-all` for 5 OS/arch targets, `docker:build`, `compose:*`) and a multi-stage `Dockerfile` producing `debian`, `alpine`, and zero-CVE `distroless` images.
+- **Prometheus 0.0.4 metrics endpoint (`GET /_gateway/metrics` & `GET /_relay/metrics`).** Exposes zero-dependency, thread-safe counters (`requests_total`, `auth_decisions_total`, `ratelimit_decisions_total`, `cache_events_total`, `policy_decisions_total`), request latency histograms (`request_duration_seconds`), and live subsystem gauges (`uptime_seconds`, `active_auth_keys`, `ratelimit_active_buckets`, `cache_entries`, `policy_rules`, `tokens_total`, and per-token `token_remaining` / `token_in_cooldown` labeled strictly by masked token ID `ghp_...XXXX`). Includes `mise run bin:metrics` helper task.
+- **OpenTelemetry W3C Trace Context propagation (`traceparent` & `tracestate`) and correlated `slog` logging.** Parses incoming W3C `traceparent` headers (`00-<trace-id>-<parent-id>-<flags>`), spawns a child `span_id` for the gateway operation (or generates a fresh root trace context if absent/malformed), forwards updated `traceparent` and `tracestate` headers upstream, echoes `traceparent` on downstream responses, and correlates `http_request` logs with `trace_id`, `span_id`, and `parent_span_id`.
+- **Multi-key client authentication and live JSON status.** Supports zero-downtime client key rotation (`GITHUB_API_GATEWAY_AUTH_KEYS`), live health and masked token quota telemetry at `GET /_gateway/status`, and `-version` / `-healthcheck` CLI flags.
+- **Hexagonal `mise` task runner, CI/Release pipelines, multi-target containers, and MIT License.** Provides modular `.mise/tasks/` ports (`check-all`, `build-all` + `build:checksums` for 5 OS/arch targets, `docker:build`, `compose:*`), idempotent GitHub Actions CI & Release workflows, a multi-stage `Dockerfile` producing `debian`, `alpine`, and zero-CVE `distroless` images, and the open-source MIT `LICENSE`.
 
 [0.1.0]: https://github.com/kjaapelania/github-api-gateway/releases/tag/v0.1.0
