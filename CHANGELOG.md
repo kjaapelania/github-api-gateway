@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-22
+
+### Added
+- **Multi-flavor GitHub Container Registry (`ghcr.io`) publishing.** Automated tagging and publishing for all three container targets (`debian`, `alpine`, and zero-CVE `distroless`) via `mise run docker:push-test` in CI (`ghcr.io/kjaapelania/github-api-gateway-test`) and `mise run docker:push-release` on version tags (`ghcr.io/kjaapelania/github-api-gateway:<version>-<flavor>`, `:<flavor>-latest`, and `:latest`).
+- **Turnkey local Prometheus & Grafana observability stack (`observability` Compose profile).** Added `mise run compose:obs-up` and `mise run compose:obs-down` launching Prometheus (`:28290`, scraping `gateway:28280/_gateway/metrics` every 5s) and Grafana (`:28300`) pre-provisioned with the **GitHub API Gateway Overview** dashboard (`deploy/observability/`).
+- **Automated dependency and toolchain maintenance via Renovate (`.github/renovate.json`).** Configured Renovate across `gomod`, `mise`, `dockerfile`, `docker-compose`, and `github-actions` managers with grouped pull requests (`Go toolchain`, `Container images`, and `CI & developer tooling`).
+
 ## [0.1.0] - 2026-10-21
 
 ### Security
@@ -24,4 +31,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multi-key client authentication and live JSON status.** Supports zero-downtime client key rotation (`GITHUB_API_GATEWAY_AUTH_KEYS`), live health and masked token quota telemetry at `GET /_gateway/status`, and `-version` / `-healthcheck` CLI flags.
 - **Hexagonal `mise` task runner, CI/Release pipelines, multi-target containers, and MIT License.** Provides modular `.mise/tasks/` ports (`check-all`, `build-all` + `build:checksums` for 5 OS/arch targets, `docker:build`, `compose:*`), idempotent GitHub Actions CI & Release workflows, a multi-stage `Dockerfile` producing `debian`, `alpine`, and zero-CVE `distroless` images, and the open-source MIT `LICENSE`.
 
+[0.2.0]: https://github.com/kjaapelania/github-api-gateway/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kjaapelania/github-api-gateway/releases/tag/v0.1.0
