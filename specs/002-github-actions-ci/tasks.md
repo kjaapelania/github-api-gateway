@@ -75,3 +75,4 @@
 - [x] **T028**: [US3] [US4] Document `VERSION` ldflags injection, `build:checksums` (`bin/checksums.txt`) in `.mise/tasks/build.toml`, `.agents/skills/release/SKILL.md`, and `CHANGELOG.md` release workflow in `README.md`.
 - [x] **T029**: [US1] [US4] Harden `.github/workflows/release.yml` and `.github/workflows/ci.yml` with `concurrency` deduplication (`${{ github.workflow }}-${{ github.ref }}`) and make the `Publish GitHub Release` step in `.github/workflows/release.yml` idempotent (`gh release view` / `gh release edit` + `gh release upload --clobber`) to eliminate duplicate-dispatch race failures.
 - [x] **T030**: [US2] [US4] Validate updated workflows and quality gates via `./.act/ci.sh -n` and `mise run check-all`.
+- [x] **T031**: Add MIT `LICENSE` file in repository root and update `## License` section in `README.md`.

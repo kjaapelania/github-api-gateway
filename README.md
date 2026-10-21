@@ -323,4 +323,4 @@ Releases follow [Semantic Versioning](https://semver.org/) and [Keep a Changelog
 
 ## License
 
-Internal corporate use. Developed with Go standard library under the [Project Constitution](.specify/memory/constitution.md).
+Released under the [MIT License](LICENSE). Developed with the Go standard library under the [Project Constitution](.specify/memory/constitution.md).
