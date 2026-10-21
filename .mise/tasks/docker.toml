@@ -14,6 +14,44 @@ run = "docker build --target distroless -t github-api-gateway:distroless -t gith
 description = "Build all container images (Debian, Alpine, Distroless)"
 depends = ["docker:build-debian", "docker:build-alpine", "docker:build-distroless"]
 
+["docker:push-test"]
+description = "Tag and push CI/test container flavors (debian, alpine, distroless) to GHCR"
+depends = ["docker:build"]
+run = '''
+OWNER=$(echo "${GITHUB_REPOSITORY_OWNER:-kjaapelania}" | tr '[:upper:]' '[:lower:]')
+IMAGE="ghcr.io/${OWNER}/github-api-gateway-test"
+if [ -n "${PR_NUMBER:-}" ]; then
+  PREFIX="pr-${PR_NUMBER}"
+else
+  SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+  SHORT_SHA=$(echo "$SHA" | cut -c1-7)
+  TS=$(date -u +"%Y%m%d-%H%M")
+  PREFIX="${TS}-sha-${SHORT_SHA}"
+fi
+for FLAVOR in debian alpine distroless; do
+  TAG="${IMAGE}:${PREFIX}-${FLAVOR}"
+  docker tag "github-api-gateway:${FLAVOR}" "${TAG}"
+  docker push "${TAG}"
+done
+'''
+
+["docker:push-release"]
+description = "Tag and push production release container flavors (debian, alpine, distroless) to GHCR"
+depends = ["docker:build"]
+run = '''
+OWNER=$(echo "${GITHUB_REPOSITORY_OWNER:-kjaapelania}" | tr '[:upper:]' '[:lower:]')
+IMAGE="ghcr.io/${OWNER}/github-api-gateway"
+VER="${VERSION:?VERSION environment variable is required (e.g. v0.1.0)}"
+for FLAVOR in debian alpine distroless; do
+  docker tag "github-api-gateway:${FLAVOR}" "${IMAGE}:${VER}-${FLAVOR}"
+  docker tag "github-api-gateway:${FLAVOR}" "${IMAGE}:${FLAVOR}-latest"
+  docker push "${IMAGE}:${VER}-${FLAVOR}"
+  docker push "${IMAGE}:${FLAVOR}-latest"
+done
+docker tag "github-api-gateway:debian" "${IMAGE}:latest"
+docker push "${IMAGE}:latest"
+'''
+
 ["docker:run"]
 description = "Run default gateway container (Debian)"
 run = "docker run --rm -p 28280:28280 -v $(pwd)/policy.yaml:/app/policy.yaml:ro --env-file .env github-api-gateway:debian"

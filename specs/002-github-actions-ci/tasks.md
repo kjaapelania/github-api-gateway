@@ -79,3 +79,7 @@
 - [x] **T032**: [US5] Create `.github/renovate.json` enabling `gomod`, `mise`, `dockerfile`, `docker-compose`, and `github-actions` managers with grouped `packageRules` (`Go toolchain`, `Container images`, `CI & developer tooling`) and document in `README.md`.
 - [x] **T033**: [US5] Validate `.github/renovate.json` syntax via `jq empty .github/renovate.json` and run `mise run check-all`.
 - [x] **T034**: [US4] Codify strict tag-immutability guardrail in `.agents/skills/release/SKILL.md` and `specs/002-github-actions-ci/spec.md` (`FR-013`).
+- [x] **T035**: [US1] [US4] Add `docker:push-test` and `docker:push-release` tasks to `.mise/tasks/docker.toml` implementing the Section 2 GHCR tagging conventions (`ghcr.io/<owner>/github-api-gateway-test` and `ghcr.io/<owner>/github-api-gateway` across `debian`, `alpine`, and `distroless`).
+- [x] **T036**: [US1] Update `.github/workflows/ci.yml` (`container` job) with `packages: write`, `docker/login-action@v3` (when `!env.ACT`), and `mise run docker:push-test` on `main` pushes and same-repo PRs.
+- [x] **T037**: [US4] Update `.github/workflows/release.yml` with `packages: write`, `docker/login-action@v3`, `mise run docker:build`, and `VERSION=${{ github.ref_name }} mise run docker:push-release`, and document in `README.md`.
+- [x] **T038**: [US2] [US4] Validate updated workflows and quality gates via `./.act/ci.sh -n` and `mise run check-all`.

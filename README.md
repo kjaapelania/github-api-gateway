@@ -262,6 +262,8 @@ mise run docker:build-debian     # Debian-slim target (default, bash & curl)
 mise run docker:build-alpine     # Alpine target (minimal, <10MB, busybox sh)
 mise run docker:build-distroless # SOTA Distroless target (zero-trust prod, <2MB base, 0 CVEs)
 mise run docker:build            # Build all three container flavors
+mise run docker:push-test        # Tag and push CI/test container flavors to GHCR
+mise run docker:push-release     # Tag and push release container flavors (VERSION=vX.Y.Z) to GHCR
 mise run compose:up              # Start gateway via Docker Compose
 mise run compose:down            # Stop Docker Compose
 mise run compose:ps              # List running Compose services and status
@@ -325,7 +327,7 @@ Test the exact GitHub Actions workflow inside local Docker containers on macOS (
 Releases follow [Semantic Versioning](https://semver.org/) and [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) in [`CHANGELOG.md`](CHANGELOG.md), orchestrated via the [`release` AI skill](.agents/skills/release/SKILL.md) and [`.github/workflows/release.yml`](.github/workflows/release.yml):
 
 1. **Prepare & Verify**: Run `mise run check-all` and `VERSION=vX.Y.Z mise run build-all` (injects `-X main.version=vX.Y.Z` and produces `bin/checksums.txt`), and update [`CHANGELOG.md`](CHANGELOG.md).
-2. **Tag & Publish**: Pushing an annotated `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which extracts the version notes from `CHANGELOG.md` and idempotently publishes all 5 cross-compiled binaries and `checksums.txt` to GitHub Releases.
+2. **Tag & Publish**: Pushing an annotated `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which extracts the version notes from `CHANGELOG.md`, publishes all 3 container flavors (`debian`, `alpine`, `distroless`) to GitHub Container Registry (`ghcr.io`), and idempotently publishes all 5 cross-compiled binaries and `checksums.txt` to GitHub Releases.
 3. **Automated Dependency & Toolchain Maintenance**: [`.github/renovate.json`](.github/renovate.json) configures Renovate across `mise.toml`, `go.mod`, `Dockerfile`, `docker-compose.yml`, and `.github/workflows/` with grouped PRs for the Go toolchain, container images, and CI/developer tooling.
 
 ---

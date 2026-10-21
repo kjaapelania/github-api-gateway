@@ -322,7 +322,9 @@ exec "${ACT_RUNNER[@]}" -j "${JOB}" "$@"
 ### `.github/workflows/release.yml`
 - Triggers on `push.tags: ['v*']`.
 - Declares `concurrency: { group: ${{ github.workflow }}-${{ github.ref }}, cancel-in-progress: true }` so duplicate tag/branch push events cannot race.
+- Grants `contents: write` and `packages: write` permissions.
 - Runs `mise run check-all` and `VERSION=${{ github.ref_name }} mise run build-all`.
+- Builds and pushes all three container flavors (`debian`, `alpine`, `distroless`) to GHCR (`ghcr.io/<owner>/github-api-gateway`) via `mise run docker:build` and `VERSION=${{ github.ref_name }} mise run docker:push-release` (`:<version>-debian`, `:<version>-alpine`, `:<version>-distroless`, `:debian-latest`, `:latest`, `:alpine-latest`, `:distroless-latest`).
 - Extracts the version section from `CHANGELOG.md` (or falls back to annotated tag message).
 - Publishes or updates the GitHub Release idempotently:
   ```bash

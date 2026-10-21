@@ -11,6 +11,7 @@ concurrency:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -40,6 +41,20 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
         run: mise run build-all
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        if: ${{ !env.ACT }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Publish Release Container Images to GHCR
+        if: ${{ !env.ACT }}
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: mise run docker:push-release
 
       - name: Extract Release Notes from CHANGELOG.md
         env:
