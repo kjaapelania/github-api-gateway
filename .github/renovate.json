@@ -1,0 +1,52 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "enabledManagers": [
+    "gomod",
+    "mise",
+    "dockerfile",
+    "docker-compose",
+    "github-actions"
+  ],
+  "postUpdateOptions": [
+    "gomodTidy"
+  ],
+  "packageRules": [
+    {
+      "description": "Keep Go toolchain versions synchronized across mise.toml, go.mod, Dockerfile, and GitHub Actions",
+      "matchPackageNames": [
+        "go",
+        "golang"
+      ],
+      "groupName": "Go toolchain"
+    },
+    {
+      "description": "Group multi-stage Dockerfile base images and Docker Compose observability stack images",
+      "matchManagers": [
+        "dockerfile",
+        "docker-compose"
+      ],
+      "excludePackageNames": [
+        "golang"
+      ],
+      "groupName": "Container images"
+    },
+    {
+      "description": "Group GitHub Actions and mise developer CLI tools",
+      "matchManagers": [
+        "github-actions",
+        "mise"
+      ],
+      "excludePackageNames": [
+        "go",
+        "golang"
+      ],
+      "groupName": "CI & developer tooling"
+    }
+  ]
+}

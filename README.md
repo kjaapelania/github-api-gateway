@@ -326,6 +326,7 @@ Releases follow [Semantic Versioning](https://semver.org/) and [Keep a Changelog
 
 1. **Prepare & Verify**: Run `mise run check-all` and `VERSION=vX.Y.Z mise run build-all` (injects `-X main.version=vX.Y.Z` and produces `bin/checksums.txt`), and update [`CHANGELOG.md`](CHANGELOG.md).
 2. **Tag & Publish**: Pushing an annotated `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which extracts the version notes from `CHANGELOG.md` and idempotently publishes all 5 cross-compiled binaries and `checksums.txt` to GitHub Releases.
+3. **Automated Dependency & Toolchain Maintenance**: [`.github/renovate.json`](.github/renovate.json) configures Renovate across `mise.toml`, `go.mod`, `Dockerfile`, `docker-compose.yml`, and `.github/workflows/` with grouped PRs for the Go toolchain, container images, and CI/developer tooling.
 
 ---
 

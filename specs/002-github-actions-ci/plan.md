@@ -359,4 +359,4 @@ exec "${ACT_RUNNER[@]}" -j "${JOB}" "$@"
 - **Phase 3**: Verify Quality Gate and Cross-compilation locally (`mise run check-all`, `mise run build-all`, `dev:*` tasks, container build tasks).
 - **Phase 4**: Execute containerized verification via `./.act/ci.sh`.
 - **Phase 5**: Documentation & final review.
-- **Phase 6 (Convergence)**: Align release automation (`VERSION` ldflags, `build:checksums`, `.agents/skills/release/SKILL.md`, `CHANGELOG.md`, `README.md`) and harden `.github/workflows/release.yml` & `.github/workflows/ci.yml` with concurrency deduplication and idempotent GitHub Release publishing.
+- **Phase 6 (Convergence)**: Align release automation (`VERSION` ldflags, `build:checksums`, `.agents/skills/release/SKILL.md`, `CHANGELOG.md`, `README.md`), harden `.github/workflows/release.yml` & `.github/workflows/ci.yml` with concurrency deduplication and idempotent GitHub Release publishing, and configure automated dependency/toolchain updates via `.github/renovate.json`.

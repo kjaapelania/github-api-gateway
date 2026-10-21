@@ -124,6 +124,17 @@ As a maintainer cutting a new semantic version release, I want an interactive AI
 
 ---
 
+### User Story 5 - Automated Dependency & Toolchain Maintenance via Renovate (Priority: P3)
+
+As a maintainer, I want a declarative Renovate configuration (`.github/renovate.json`) covering `mise.toml`, `go.mod`, `Dockerfile`, `docker-compose.yml`, and `.github/workflows/*.yml`, so that Go toolchain versions, container base images, and CI actions stay synchronized without noisy single-file PR spam.
+
+- **Independent Test**: Validate `.github/renovate.json` with `jq empty .github/renovate.json` and verify manager and `packageRules` grouping definitions for Go toolchain, container images, and CI/developer tooling.
+- **Acceptance Scenarios**:
+  1. **Given** a new Go patch/minor release, **When** Renovate evaluates the repository, **Then** updates across `mise.toml`, `go.mod`, `Dockerfile`, and GitHub Actions are grouped into a single `Go toolchain` pull request with `gomodTidy` enabled.
+  2. **Given** updates to container images (`Dockerfile`, `docker-compose.yml`) or CI actions (`.github/workflows/`), **When** Renovate runs, **Then** updates are grouped logically (`Container images`, `CI & developer tooling`) to minimize PR noise.
+
+---
+
 ## 4. Requirements
 
 ### Functional Requirements
@@ -140,6 +151,7 @@ As a maintainer cutting a new semantic version release, I want an interactive AI
 - **FR-011**: `.actrc` MUST configure `act` with multi-arch runner mappings for Apple Silicon compatibility.
 - **FR-012**: `.github/workflows/release.yml` MUST trigger on `v*` tags, enforce `concurrency` deduplication per workflow/ref, run `mise run check-all` and `VERSION=${{ github.ref_name }} mise run build-all`, extract release notes from `CHANGELOG.md` (with annotated tag fallback), and idempotently create or update the GitHub Release with all 5 binaries and `checksums.txt`.
 - **FR-013**: `.agents/skills/release/SKILL.md` MUST define the guided release preparation workflow (commit analysis, SemVer recommendation, `CHANGELOG.md` drafting in Keep-a-Changelog format, `mise run check-all` + `mise run build-all` verification, and annotated Git tag creation after user approval).
+- **FR-014**: `.github/renovate.json` MUST configure Renovate with `gomod`, `mise`, `dockerfile`, `docker-compose`, and `github-actions` managers and grouped `packageRules` (`Go toolchain`, `Container images`, `CI & developer tooling`).
 
 ### Non-Functional Requirements
 - **NFR-001 (Constitution Compliance)**: Zero runtime Go dependencies added (Go standard library + `gopkg.in/yaml.v3` only).
