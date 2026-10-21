@@ -78,3 +78,4 @@
 - [x] **T031**: Add MIT `LICENSE` file in repository root and update `## License` section in `README.md`.
 - [x] **T032**: [US5] Create `.github/renovate.json` enabling `gomod`, `mise`, `dockerfile`, `docker-compose`, and `github-actions` managers with grouped `packageRules` (`Go toolchain`, `Container images`, `CI & developer tooling`) and document in `README.md`.
 - [x] **T033**: [US5] Validate `.github/renovate.json` syntax via `jq empty .github/renovate.json` and run `mise run check-all`.
+- [x] **T034**: [US4] Codify strict tag-immutability guardrail in `.agents/skills/release/SKILL.md` and `specs/002-github-actions-ci/spec.md` (`FR-013`).

@@ -10,6 +10,7 @@ Synthesizes git commit history and diffs since the last release tag into a human
 ## Guardrails
 
 - **Never trigger on normal `git push`**: Only activate when the user explicitly asks to cut a release, bump a version, or draft a changelog.
+- **Strict tag immutability**: Never delete, overwrite, force-push, or move an already-published Git tag or GitHub Release (`git tag -f`, `git push --force`, or `git push origin :refs/tags/v*`). Once a `vX.Y.Z` tag is pushed, any subsequent commits MUST be released under a new incremented Semantic Version (`PATCH`, `MINOR`, or `MAJOR`).
 - **Derive version from Git tags + `VERSION` file**: Keep `VERSION`, `CHANGELOG.md`, and the annotated Git tag (`vX.Y.Z`) in lockstep.
 - **No mechanical commit dumps**: Group changes by user-visible impact (`Added`, `Changed`, `Fixed`, `Security`, `Breaking Changes`), lead with a bold outcome summary, and omit internal noise (`test:`, formatting, spec chores).
 - **Always pause for user review**: Never create a release commit, tag, or push without presenting the draft changelog and version bump to the user first.

@@ -150,7 +150,7 @@ As a maintainer, I want a declarative Renovate configuration (`.github/renovate.
 - **FR-010**: CI MUST run on Go version `1.25.x` on `ubuntu-latest`.
 - **FR-011**: `.actrc` MUST configure `act` with multi-arch runner mappings for Apple Silicon compatibility.
 - **FR-012**: `.github/workflows/release.yml` MUST trigger on `v*` tags, enforce `concurrency` deduplication per workflow/ref, run `mise run check-all` and `VERSION=${{ github.ref_name }} mise run build-all`, extract release notes from `CHANGELOG.md` (with annotated tag fallback), and idempotently create or update the GitHub Release with all 5 binaries and `checksums.txt`.
-- **FR-013**: `.agents/skills/release/SKILL.md` MUST define the guided release preparation workflow (commit analysis, SemVer recommendation, `CHANGELOG.md` drafting in Keep-a-Changelog format, `mise run check-all` + `mise run build-all` verification, and annotated Git tag creation after user approval).
+- **FR-013**: `.agents/skills/release/SKILL.md` MUST define the guided release preparation workflow (commit analysis, SemVer recommendation, `CHANGELOG.md` drafting in Keep-a-Changelog format, `mise run check-all` + `mise run build-all` verification, annotated Git tag creation after user approval, and strict tag immutability forbidding moving or overwriting published tags).
 - **FR-014**: `.github/renovate.json` MUST configure Renovate with `gomod`, `mise`, `dockerfile`, `docker-compose`, and `github-actions` managers and grouped `packageRules` (`Go toolchain`, `Container images`, `CI & developer tooling`).
 
 ### Non-Functional Requirements
